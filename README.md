@@ -105,9 +105,7 @@ Each notebook will include:
 - Mathematical explanation
 - PyTorch implementation
 - Visualizations
-- Experiments
-- Debugging insights
-- Links to related papers
+- Links to related papers(if any)
 
 The goal is to make this repository both:
 - a learning resource 📘
@@ -115,19 +113,6 @@ The goal is to make this repository both:
 
 ---
 
-# 🎯 Learning Philosophy
-
-This series focuses on:
-
-✅ Small incremental concepts  
-✅ Practical implementations  
-✅ Clear intuition over heavy theory  
-✅ Building everything piece by piece  
-✅ Understanding *why* components exist
-
-Instead of jumping directly into massive codebases, we’ll recreate the important ideas ourselves.
-
----
 
 # 🔗 Follow the Series
 
