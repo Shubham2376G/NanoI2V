@@ -1,10 +1,10 @@
-# 🚀 Building an Image-to-Video (I2V) Model from Scratch
+# Building an Image-to-Video (I2V) Model from Scratch
 
-Over the past few months, I moved from coding LLMs to working on diffusion-based video generation models inspired by architectures like WAN, DiT, and modern open-source video models 🎥✨
+Over the past few months, I moved from coding LLMs to working on diffusion-based video generation models inspired by architectures like WAN, DiT, and modern open-source video models 
 
-These systems are capable of generating coherent videos from a single image; producing motion, temporal consistency, camera dynamics, and cinematic outputs 🎬🔥
+These systems are capable of generating coherent videos from a single image; producing motion, temporal consistency, camera dynamics, and cinematic outputs 
 
-But how do these models actually work under the hood? 🤔
+But how do these models actually work under the hood? 
 
 This repository is a step-by-step learning series where we build and understand the core components behind modern Image-to-Video (I2V) models from scratch.
 
@@ -12,7 +12,7 @@ Instead of treating video generation like magic, we’ll break everything down i
 
 ---
 
-# 📚 What This Series Covers
+#  What This Series Covers
 
 We’ll gradually build the components used in modern diffusion video pipelines, including:
 
@@ -28,7 +28,7 @@ We’ll gradually build the components used in modern diffusion video pipelines,
 - ✅ Training Pipeline
 - ✅ Full Image-to-Video generation pipeline
 
-By the end of the series, we’ll connect all the pieces together into a simplified but functional I2V architecture 🚀
+By the end of the series, we’ll connect all the pieces together into a simplified but functional I2V architecture 
 
 
 ---
@@ -38,7 +38,7 @@ By the end of the series, we’ll connect all the pieces together into a simplif
 If you find this series useful:
 
 - Star the repository ⭐
-- Follow the updates on LinkedIn 🚀
+- Follow the updates on LinkedIn 
 - Share it with others interested in diffusion/video models
 
 Your support helps the project reach more builders and researchers.
@@ -47,7 +47,7 @@ Your support helps the project reach more builders and researchers.
 
 ---
 
-# 🧠 Prerequisites
+# Prerequisites
 
 A basic understanding of the following topics will help:
 
@@ -57,7 +57,8 @@ A basic understanding of the following topics will help:
 - PyTorch basics
 - Diffusion model intuition (helpful but not mandatory)
 
-If you've previously worked with LLMs, many concepts here will feel surprisingly familiar 👀
+If you've previously worked with LLMs, many concepts here will feel surprisingly familiar
+
 
 ---
 
@@ -108,9 +109,8 @@ Each notebook will include:
 - Links to related papers(if any)
 
 The goal is to make this repository both:
-- a learning resource 📘
-- and a practical implementation guide 🔧
-
+- a learning resource 
+- and a practical implementation guide 
 ---
 
 
@@ -124,7 +124,7 @@ I’ll be posting:
 - visual explanations
 - diffusion model intuition
 
-throughout this series 🚀
+throughout this series 
 
 <br>
 
