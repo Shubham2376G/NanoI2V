@@ -116,16 +116,7 @@ The goal is to make this repository both:
 
 # 🔗 Follow the Series
 
-I’ll be posting:
-
-- daily breakdowns
-- architecture deep dives
-- implementation walkthroughs
-- visual explanations
-- diffusion model intuition
-
-throughout this series 
-
+You can follow the series here:
 <br>
 
 <p align="left">
