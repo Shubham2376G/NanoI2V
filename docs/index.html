@@ -526,39 +526,139 @@ const lessons = [
   {
     title: "Causal 3D Convolutions",
     tag: "VAE",
-    subtitle: "The fundamental building block that lets us process video without peeking into the future.",
+    subtitle: "CausalConv3d",
     body: `
-      <h3>Why Not Just Use 2D Convolutions?</h3>
-      <p>Applying 2D convolutions independently per frame is the obvious first attempt. It works — but treats each frame in isolation, capturing no temporal structure. The model cannot learn that grass sways smoothly or water flows continuously across frames.</p>
-      <p>The solution is a <strong>3D convolution</strong>: a kernel that slides across height, width, <em>and time</em> simultaneously, letting the model see how pixels evolve across consecutive frames.</p>
-      <h3>The Causality Requirement</h3>
-      <p>Standard 3D convolutions are non-causal: when computing output at frame <em>t</em>, they look at frames <em>t−1, t, t+1</em>. This breaks generation — a model generating frame <em>t</em> must not see frame <em>t+1</em>.</p>
-      <div class="callout"><strong>Causality:</strong> the output at time t may only depend on inputs at times ≤ t. This is the temporal equivalent of the autoregressive constraint in language models.</div>
-      <h3>Causal Padding</h3>
-      <p>The fix is simple: pad the temporal dimension <em>only on the left</em> (the past side), with <code>(kernel_size − 1)</code> zeros. This shifts the receptive field so a kernel centered at frame <em>t</em> sees only frames <em>t−(k−1)</em> through <em>t</em>.</p>
-      <span class="code-label">causal_conv3d.py</span>
-      <pre><span class="c-kw">import</span> torch.nn <span class="c-kw">as</span> nn
-<span class="c-kw">import</span> torch.nn.functional <span class="c-kw">as</span> F
 
-<span class="c-kw">class</span> <span class="c-fn">CausalConv3d</span>(nn.Module):
-    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, in_ch, out_ch, kernel_size, stride=<span class="c-num">1</span>):
-        <span class="c-fn">super</span>().__init__()
-        kt, kh, kw = kernel_size
-        self.pad_t = kt - <span class="c-num">1</span>  <span class="c-cm"># pad only the past side</span>
-        self.conv = nn.<span class="c-fn">Conv3d</span>(in_ch, out_ch, kernel_size, stride=stride)
 
-    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x):
-        <span class="c-cm"># x: (B, C, T, H, W)</span>
-        x = F.<span class="c-fn">pad</span>(x, (<span class="c-num">0</span>,<span class="c-num">0</span>, <span class="c-num">0</span>,<span class="c-num">0</span>, self.pad_t, <span class="c-num">0</span>))
-        <span class="c-kw">return</span> self.<span class="c-fn">conv</span>(x)</pre>
-      <h3>Factorized Convolutions</h3>
-      <p>Full 3×3×3 convolutions are expensive. A common optimization is to <em>factorize</em> them: apply a 1×3×3 spatial convolution first, then a 3×1×1 temporal convolution. This separates spatial and temporal feature extraction, reducing parameters and compute while preserving expressiveness.</p>
-      <div class="concept-row">
-        <div class="concept-card"><div class="concept-card-title">Full 3D (3×3×3)</div><div class="concept-card-body">27 weights per channel pair. Captures space-time jointly, but computationally expensive.</div></div>
-        <div class="concept-card"><div class="concept-card-title">Factorized (1×3×3 + 3×1×1)</div><div class="concept-card-body">9+3 = 12 weights. Cheaper and often matches full 3D quality in practice.</div></div>
-      </div>
-    `
-  },
+    <p>
+      Ok so let’s start with the <strong>Causal Convolution 3D layer</strong>.
+    </p>
+
+    <p>
+      If you remember, in Transformers we have a <strong>causal attention mask</strong>,
+      which prevents the model from seeing future tokens during autoregressive generation.
+    </p>
+
+    <p>For example:</p>
+
+    <ul>
+      <li>token <code>t5</code> can only attend to previous tokens</li>
+      <li>it cannot see <code>t6</code>, <code>t7</code>, ...</li>
+    </ul>
+
+    <p>
+      Now in video generation, we do something very similar.
+    </p>
+
+    <p>
+      Instead of generating words, we generate frames over time.
+    </p>
+
+    <p>So you can think of a video like:</p>
+
+    <pre>frame₀ → frame₁ → frame₂ → ...</pre>
+
+    <p>which is somewhat similar to:</p>
+
+    <pre>word₀ → word₁ → word₂ → ...</pre>
+
+    <h3>Why Do We Need Causal Conv3D?</h3>
+
+    <p>
+      In video models, we usually work with tensors shaped like:
+    </p>
+
+    <pre>(T × H × W)</pre>
+
+    <p>where:</p>
+
+    <ul>
+      <li><code>T</code> = time / frames</li>
+      <li><code>H</code> = height</li>
+      <li><code>W</code> = width</li>
+    </ul>
+
+    <p>For simplicity, let’s assume:</p>
+
+    <pre>Video Shape = 8 × 32 × 32</pre>
+
+    <p>meaning:</p>
+
+    <ul>
+      <li>8 frames</li>
+      <li>each frame is 32×32</li>
+    </ul>
+
+    <p>
+      Now suppose we use a normal <code>Conv3D</code> layer with kernel size:
+    </p>
+
+    <pre>3 × 3 × 3</pre>
+
+    <p>
+      A standard Conv3D is <strong>not causal</strong>.
+    </p>
+
+    <p>So when processing frame <code>t</code>, it may look at:</p>
+
+    <pre>[t-1, t, t+1]</pre>
+
+    <div class="callout">
+      <strong>Problem:</strong>
+      During autoregressive video generation, frame <code>t+1</code> is a future frame.
+      The model should not have access to future information while generating the current frame.
+    </div>
+
+    <h3>Causal Conv3D</h3>
+
+    <p>
+      So what Causal Conv3D does is, it takes:
+    </p>
+
+    <pre>[t-2, t-1, t]</pre>
+
+    <p>
+      So the model only sees the past and present frames.
+    </p>
+
+    <h3>Now at t = 0?</h3>
+
+    <p>
+      At the first frame:
+    </p>
+
+    <pre>t = 0</pre>
+
+    <p>
+      there are no previous frames.
+    </p>
+
+    <p>
+      So we pad the beginning of the video along the temporal dimension.
+    </p>
+
+    <p>
+      Think of it like adding black frames at the start.
+    </p>
+
+    <h3>Temporal Padding</h3>
+
+    <p>So instead of:</p>
+
+    <pre>[t0, t1, t2, t3, ...]</pre>
+
+    <p>we transform it into:</p>
+
+    <pre>[pad, pad, t0, t1, t2, ...]</pre>
+
+    <p>
+      Now when the convolution operates at <code>t0</code>, it sees:
+    </p>
+
+    <pre>[pad, pad, t0]</pre>
+
+  `
+},
   {
     title: "3D Residual Blocks",
     tag: "VAE",
