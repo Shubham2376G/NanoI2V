@@ -8,7 +8,6 @@ This repository is a step-by-step series where we build every core component of 
 
 ---
 
-
 > The series is published as a dedicated website with structured lessons, explanations, and code walkthroughs:
 > **[shubham2376g.github.io/NanoI2V](https://shubham2376g.github.io/NanoI2V)**
 >
@@ -38,7 +37,7 @@ Additional topics and modules will be added as the series evolves.
 NanoI2V/
 ├── vae/
 │   ├── conv.py          # CausalConv3d
-│   ├── blocks.py        # 3D ResBlocks
+│   ├── blocks.py        # 3D ResBlocks and SpatialAttention
 │   ├── encoder.py
 │   ├── decoder.py
 │   └── vae.py
