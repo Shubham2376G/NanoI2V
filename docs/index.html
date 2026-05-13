@@ -3,74 +3,73 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
   <title>NanoI2V — Building I2V from Scratch</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;1,8..60,300&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&family=DM+Sans:wght@300;400&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg:          #F7F4EF;
-      --bg-card:     #EEE9DE;
-      --bg-code:     #E8E3D8;
-      --border:      #D5CFC3;
-      --border-soft: #E4DFD5;
-      --text:        #2D3142;
-      --muted:       #7A7570;
-      --faint:       #ADA9A1;
-      --accent:      #4A7FA5;
-      --accent-bg:   #EBF2F8;
-      --accent-mid:  #7AAAC8;
-      --serif:       'Playfair Display', Georgia, serif;
-      --body:        'Source Serif 4', Georgia, serif;
-      --mono:        'JetBrains Mono', monospace;
+      --bg:       #F9F8F6;
+      --bg-inset: #F2F0EC;
+      --text:     #1A1917;
+      --muted:    #6B6860;
+      --faint:    #A09D97;
+      --accent:   #1A4A7A;
+      --border:   #E2DED8;
+      --serif:    'Lora', Georgia, serif;
+      --sans:     'DM Sans', system-ui, sans-serif;
+      --mono:     'IBM Plex Mono', 'Courier New', monospace;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
+
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: var(--body);
-      font-size: 17px;
-      line-height: 1.8;
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.75;
       -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
     .view { display: none; }
     .view.active { display: block; }
 
-    /* NAV */
+    /* ── NAV ── */
     nav {
       position: fixed;
       top: 0; left: 0; right: 0;
       z-index: 100;
+      height: 52px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 56px;
-      height: 58px;
-      background: rgba(247,244,239,0.93);
-      backdrop-filter: blur(14px);
-      border-bottom: 1px solid var(--border-soft);
+      padding: 0 max(40px, calc(50vw - 360px));
+      background: rgba(249,248,246,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
     }
 
     .nav-logo {
       font-family: var(--mono);
       font-size: 12px;
       font-weight: 500;
-      color: var(--accent);
-      text-decoration: none;
-      letter-spacing: 0.05em;
-      cursor: pointer;
+      color: var(--text);
+      letter-spacing: 0.04em;
       background: none;
       border: none;
+      cursor: pointer;
       padding: 0;
     }
+    .nav-logo:hover { color: var(--accent); }
 
     .nav-right {
       display: flex;
       align-items: center;
-      gap: 24px;
+      gap: 20px;
     }
 
     #nav-progress {
@@ -85,72 +84,70 @@
       font-size: 11px;
       color: var(--muted);
       text-decoration: none;
-      letter-spacing: 0.04em;
-      padding: 5px 14px;
-      border: 1px solid var(--border);
-      border-radius: 3px;
-      transition: color 0.18s, border-color 0.18s;
+      letter-spacing: 0.03em;
     }
-    .nav-gh:hover { color: var(--text); border-color: var(--muted); }
+    .nav-gh:hover { color: var(--text); }
 
     /* ── HOME ── */
     .home-wrap {
-      max-width: 680px;
+      max-width: 720px;
       margin: 0 auto;
-      padding: 136px 40px 100px;
+      padding: 120px 40px 100px;
     }
 
     .home-eyebrow {
       font-family: var(--mono);
       font-size: 11px;
-      color: var(--accent);
-      letter-spacing: 0.14em;
+      color: var(--faint);
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      margin-bottom: 22px;
+      margin-bottom: 20px;
     }
 
     .home-title {
       font-family: var(--serif);
-      font-size: clamp(2.2rem, 5vw, 3.6rem);
+      font-size: clamp(2rem, 4.5vw, 3.2rem);
       font-weight: 400;
-      line-height: 1.15;
+      line-height: 1.18;
       color: var(--text);
-      margin-bottom: 22px;
+      margin-bottom: 20px;
     }
-    .home-title em { font-style: italic; color: var(--accent); }
+    .home-title em {
+      font-style: italic;
+      color: var(--accent);
+    }
 
     .home-desc {
-      font-size: 1rem;
+      font-size: 0.95rem;
       color: var(--muted);
-      line-height: 1.9;
-      max-width: 520px;
-      margin-bottom: 44px;
+      line-height: 1.85;
+      max-width: 500px;
+      margin-bottom: 36px;
       font-weight: 300;
     }
 
     .btn-start {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      padding: 13px 30px;
-      background: var(--accent);
-      color: #fff;
+      gap: 8px;
+      padding: 10px 22px;
+      background: var(--text);
+      color: var(--bg);
       font-family: var(--mono);
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 500;
-      letter-spacing: 0.06em;
-      border-radius: 3px;
+      letter-spacing: 0.05em;
       border: none;
       cursor: pointer;
       text-decoration: none;
-      transition: background 0.18s, transform 0.15s;
+      transition: opacity 0.15s;
     }
-    .btn-start:hover { background: #3c6e91; transform: translateY(-1px); }
+    .btn-start:hover { opacity: 0.75; }
 
     /* Topic list */
     .topic-list {
-      margin-top: 68px;
-      border-top: 1px solid var(--border-soft);
+      margin-top: 60px;
+      border-top: 1px solid var(--border);
     }
 
     .topic-list-label {
@@ -159,63 +156,59 @@
       letter-spacing: 0.14em;
       text-transform: uppercase;
       color: var(--faint);
-      padding: 26px 0 18px;
+      padding: 22px 0 14px;
     }
 
     .topic-item {
       display: flex;
       align-items: baseline;
-      gap: 18px;
-      padding: 15px 0;
-      border-bottom: 1px solid var(--border-soft);
+      gap: 16px;
+      padding: 13px 0;
+      border-bottom: 1px solid var(--border);
       cursor: pointer;
-      transition: all 0.15s;
+      transition: opacity 0.13s;
     }
-    .topic-item:hover .ti-title { color: var(--accent); }
-    .topic-item:hover .ti-num { color: var(--accent-mid); }
+    .topic-item:hover { opacity: 0.6; }
 
     .ti-num {
       font-family: var(--mono);
       font-size: 11px;
       color: var(--faint);
       flex-shrink: 0;
-      width: 22px;
-      transition: color 0.15s;
+      width: 20px;
     }
     .ti-title {
-      font-size: 0.95rem;
-      font-weight: 400;
+      font-size: 0.93rem;
       color: var(--text);
-      transition: color 0.15s;
+      font-weight: 400;
     }
     .ti-tag {
       margin-left: auto;
       font-family: var(--mono);
       font-size: 10px;
       color: var(--faint);
-      letter-spacing: 0.06em;
       flex-shrink: 0;
     }
 
-    /* ── LESSON VIEW ── */
+    /* ── LESSON ── */
     .lesson-wrap {
       max-width: 680px;
       margin: 0 auto;
-      padding: 100px 40px 80px;
+      padding: 90px 40px 80px;
     }
 
     .lesson-meta {
       display: flex;
       align-items: center;
       gap: 12px;
-      margin-bottom: 32px;
+      margin-bottom: 28px;
     }
 
     .lesson-num {
       font-family: var(--mono);
       font-size: 11px;
       color: var(--faint);
-      letter-spacing: 0.08em;
+      letter-spacing: 0.07em;
     }
 
     .lesson-tag {
@@ -223,179 +216,297 @@
       font-size: 10px;
       letter-spacing: 0.1em;
       text-transform: uppercase;
-      padding: 3px 10px;
-      border-radius: 20px;
-      background: var(--accent-bg);
       color: var(--accent);
     }
 
     .lesson-title {
       font-family: var(--serif);
-      font-size: clamp(1.8rem, 3.5vw, 2.6rem);
+      font-size: clamp(1.75rem, 3.2vw, 2.5rem);
       font-weight: 400;
-      line-height: 1.2;
+      line-height: 1.22;
       color: var(--text);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     .lesson-subtitle {
-      font-size: 1rem;
+      font-size: 0.93rem;
       color: var(--muted);
       font-weight: 300;
       font-style: italic;
-      margin-bottom: 44px;
-      padding-bottom: 36px;
-      border-bottom: 1px solid var(--border-soft);
+      margin-bottom: 40px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid var(--border);
     }
 
-    /* Lesson body */
-    .lesson-body h3 {
+    /* ── BODY ── */
+    .lesson-body h2 {
       font-family: var(--serif);
-      font-size: 1.25rem;
-      font-weight: 600;
+      font-size: 1.3rem;
+      font-weight: 500;
       color: var(--text);
-      margin: 42px 0 14px;
+      margin: 48px 0 14px;
+      line-height: 1.3;
     }
-    .lesson-body h3:first-child { margin-top: 0; }
+
+    .lesson-body h3 {
+      font-family: var(--sans);
+      font-size: 0.78rem;
+      font-weight: 400;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin: 38px 0 10px;
+    }
 
     .lesson-body p {
       color: var(--text);
       font-weight: 300;
-      margin-bottom: 20px;
-      line-height: 1.88;
+      margin-bottom: 14px;
+      line-height: 1.82;
+      font-size: 0.97rem;
     }
 
-    .lesson-body ul, .lesson-body ol {
-      margin: 0 0 20px 22px;
+    .lesson-body ul,
+    .lesson-body ol {
+      margin: 0 0 18px 0;
+      padding-left: 0;
+      list-style: none;
+    }
+    .lesson-body li {
+      font-size: 0.97rem;
       color: var(--text);
       font-weight: 300;
+      line-height: 1.78;
+      margin-bottom: 7px;
+      padding-left: 1.3em;
+      position: relative;
     }
-    .lesson-body li { margin-bottom: 8px; line-height: 1.78; }
-    .lesson-body strong { font-weight: 600; }
+    .lesson-body li::before {
+      content: "–";
+      position: absolute;
+      left: 0;
+      color: var(--faint);
+    }
+
+    .lesson-body strong { font-weight: 500; color: var(--text); }
+
     .lesson-body em { font-style: italic; color: var(--muted); }
 
-    .callout {
-      background: var(--accent-bg);
-      border-left: 2px solid var(--accent-mid);
-      padding: 16px 22px;
-      border-radius: 0 4px 4px 0;
-      margin: 28px 0;
-      font-size: 0.93rem;
+    .lesson-body code {
+      font-family: var(--mono);
+      font-size: 0.84em;
+      background: var(--bg-inset);
+      border: 1px solid var(--border);
+      padding: 1px 5px;
+      border-radius: 2px;
       color: var(--text);
-      font-weight: 300;
-      line-height: 1.8;
     }
-    .callout strong { font-weight: 600; color: var(--accent); }
 
+    .hero-image {
+    margin: 24px 0;
+    text-align: center;
+    }
+
+    .hero-image img {
+    width: 100%;
+    max-width: 900px;
+    border-radius: 16px;
+    display: block;
+    margin: 0 auto;
+    box-shadow: 0 5px 5px rgba(0,0,0,0.12);
+    }
+
+    .caption {
+    margin-top: 10px;
+    font-size: 0.95rem;
+    color: #666;
+    }
+
+    /* ── CALLOUT ── */
+    .callout {
+      border-left: 2px solid var(--accent);
+      padding: 2px 0 2px 20px;
+      margin: 28px 0;
+      color: var(--muted);
+      font-size: 0.93rem;
+      font-style: italic;
+      line-height: 1.78;
+      font-weight: 300;
+    }
+    .callout strong {
+      font-style: normal;
+      font-weight: 500;
+      color: var(--accent);
+    }
+
+    /* ── CODE ── */
     .code-label {
       font-family: var(--mono);
       font-size: 10px;
       color: var(--faint);
       letter-spacing: 0.08em;
-      text-transform: uppercase;
       display: block;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
+      margin-top: 24px;
     }
 
     pre {
-      background: var(--bg-code);
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      padding: 20px 22px;
+      background: #EDE9DF;
+      color: #2C2820;
+      border: 1px solid #D8D2C4;
+      border-radius: 3px;
+      padding: 16px 20px;
       font-family: var(--mono);
       font-size: 12.5px;
-      line-height: 1.72;
+      line-height: 1.65;
       overflow-x: auto;
-      margin: 4px 0 28px;
-      color: var(--text);
+      margin: 0 0 20px;
     }
 
-    .c-kw  { color: #4A7FA5; }
-    .c-fn  { color: #2D7A4F; }
-    .c-str { color: #8A5C3A; }
-    .c-cm  { color: var(--faint); font-style: italic; }
-    .c-num { color: #7A4A8A; }
+    /* Syntax colors — warm light bg */
+    .c-kw  { color: #1A4A7A; }
+    .c-fn  { color: #2D6B48; }
+    .c-str { color: #7A4820; }
+    .c-cm  { color: #9A9488; font-style: italic; }
+    .c-num { color: #5A3A7A; }
 
+    /* Notation — centered bare mono, no box */
+    .nota {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--muted);
+      text-align: center;
+      display: block;
+      margin: 20px 0;
+      line-height: 1.9;
+      background: none;
+      border: none;
+      padding: 0;
+      white-space: pre;
+      overflow-x: auto;
+    }
+
+    /* ── COMPARE TABLE (replaces concept-row cards) ── */
     .concept-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin: 22px 0;
+      gap: 0;
+      margin: 24px 0;
+      border: 1px solid var(--border);
     }
-    @media (max-width: 520px) { .concept-row { grid-template-columns: 1fr; } }
+    @media (max-width: 500px) { .concept-row { grid-template-columns: 1fr; } }
 
     .concept-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-soft);
-      border-radius: 4px;
-      padding: 16px 18px;
+      padding: 18px 20px;
+      background: var(--bg-inset);
     }
+    .concept-card + .concept-card {
+      border-left: 1px solid var(--border);
+    }
+    @media (max-width: 500px) {
+      .concept-card + .concept-card { border-left: none; border-top: 1px solid var(--border); }
+    }
+
     .concept-card-title {
       font-family: var(--mono);
       font-size: 10px;
       font-weight: 500;
-      color: var(--accent);
-      letter-spacing: 0.07em;
-      margin-bottom: 6px;
-    }
-    .concept-card-body {
-      font-size: 0.84rem;
       color: var(--muted);
-      line-height: 1.65;
-      font-weight: 300;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
     }
 
+    .concept-card-body {
+      font-size: 0.88rem;
+      color: var(--muted);
+      line-height: 1.68;
+      font-weight: 300;
+    }
+    .concept-card-body ul {
+      margin: 0;
+      padding: 0;
+    }
+
+    /* ── DIAGRAM ── */
     .diagram {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 24px;
-      margin: 22px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 20px 0;
+      margin: 28px 0;
       text-align: center;
       font-family: var(--mono);
-      font-size: 11.5px;
+      font-size: 11px;
       color: var(--muted);
       line-height: 2.4;
+      overflow-x: auto;
     }
+
     .d-box {
       display: inline-block;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 2px 10px;
+      font-size: 10.5px;
       background: var(--bg);
-      border: 1px solid var(--accent-mid);
-      color: var(--accent);
-      padding: 4px 14px;
-      border-radius: 3px;
-      font-size: 11px;
     }
-    .d-arr { color: var(--border); margin: 0 6px; }
+
+    .d-arr {
+      color: var(--faint);
+      margin: 0 4px;
+    }
+
+    /* ── TABLE ── */
+    .lesson-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 0.9rem;
+    }
+    .lesson-body th {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+    }
+    .lesson-body td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      font-weight: 300;
+      font-size: 0.9rem;
+    }
 
     /* ── LESSON NAV ── */
     .lesson-nav {
       display: flex;
       justify-content: space-between;
-      gap: 14px;
-      margin-top: 68px;
-      padding-top: 36px;
-      border-top: 1px solid var(--border-soft);
+      gap: 1px;
+      margin-top: 64px;
+      padding-top: 32px;
+      border-top: 1px solid var(--border);
     }
 
     .nav-btn {
       display: flex;
       flex-direction: column;
-      gap: 5px;
-      padding: 18px 22px;
-      background: var(--bg-card);
-      border: 1px solid var(--border-soft);
-      border-radius: 4px;
+      gap: 4px;
+      padding: 16px 0;
+      background: none;
+      border: none;
       cursor: pointer;
-      transition: border-color 0.18s, background 0.18s;
-      min-width: 180px;
-      max-width: 260px;
       flex: 1;
       text-align: left;
+      transition: opacity 0.15s;
     }
-    .nav-btn:hover { border-color: var(--accent-mid); background: var(--accent-bg); }
-    .nav-btn:disabled { opacity: 0.28; cursor: not-allowed; pointer-events: none; }
-    .nav-btn.next { text-align: right; }
+    .nav-btn.next { text-align: right; align-items: flex-end; }
+    .nav-btn:hover { opacity: 0.55; }
+    .nav-btn:disabled { opacity: 0.2; cursor: not-allowed; pointer-events: none; }
 
     .nb-label {
       font-family: var(--mono);
@@ -406,32 +517,34 @@
     }
     .nb-arrow {
       font-family: var(--mono);
-      font-size: 14px;
-      color: var(--accent);
+      font-size: 13px;
+      color: var(--text);
     }
     .nb-title {
-      font-size: 0.88rem;
+      font-size: 0.87rem;
       color: var(--text);
       line-height: 1.3;
+      max-width: 240px;
+      font-weight: 300;
     }
 
-    /* Fade */
+    /* ── FADE ── */
     @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(10px); }
+      from { opacity: 0; transform: translateY(8px); }
       to   { opacity: 1; transform: translateY(0); }
     }
-    .fade-in { animation: fadeUp 0.32s ease forwards; }
+    .fade-in { animation: fadeUp 0.28s ease forwards; }
 
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: var(--bg); }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); }
 
     @media (max-width: 640px) {
-      nav { padding: 0 24px; }
-      .home-wrap, .lesson-wrap { padding-left: 24px; padding-right: 24px; }
+      nav { padding: 0 20px; }
+      .home-wrap, .lesson-wrap { padding-left: 20px; padding-right: 20px; }
       .lesson-nav { flex-direction: column; }
-      .nav-btn { max-width: 100%; }
+      .nav-btn.next { text-align: left; align-items: flex-start; }
     }
   </style>
 </head>
@@ -449,11 +562,11 @@
 <div class="view active fade-in" id="home-view">
   <div class="home-wrap">
     <p class="home-eyebrow">A Teaching Series</p>
-    <h1 class="home-title">Building an <em>Image-to-Video</em> Model from Scratch</h1>
+    <h1 class="home-title">Building an <em>Image-to-Video</em><br>Model from Scratch</h1>
     <p class="home-desc">
-      A step-by-step series that takes you from first principles to a working I2V pipeline —
+      A step-by-step series from first principles to a working I2V pipeline —
       covering video VAEs, diffusion transformers, flow matching, and conditioning,
-      all built in PyTorch from scratch.
+      all built in PyTorch.
     </p>
     <button class="btn-start" onclick="showLesson(0)">Begin Series →</button>
 
@@ -477,469 +590,715 @@
 
     <div class="lesson-nav">
       <button class="nav-btn prev" id="btn-prev" onclick="navigate(-1)">
-        <span class="nb-arrow">←</span>
-        <span class="nb-label">Previous</span>
+        <span class="nb-label">← Previous</span>
         <span class="nb-title" id="prev-title"></span>
       </button>
       <button class="nav-btn next" id="btn-next" onclick="navigate(1)">
-        <span class="nb-arrow">→</span>
-        <span class="nb-label">Next</span>
+        <span class="nb-label">Next →</span>
         <span class="nb-title" id="next-title"></span>
       </button>
     </div>
   </div>
 </div>
 
+
 <script>
+    function updateURL(i) {
+      location.hash = `lesson-${i}`;
+    }
+    
+    function loadFromURL() {
+      const hash = location.hash;
+    
+      if (hash.startsWith('#lesson-')) {
+        const i = parseInt(hash.replace('#lesson-', ''));
+    
+        if (!isNaN(i) && i >= 0 && i < lessons.length) {
+          showLesson(i, false);
+          return;
+        }
+      }
+    
+      showHome();
+    }
+    </script>
+
+
+<script>
+
+
 const lessons = [
   {
     title: "Introduction to Image-to-Video",
     tag: "Overview",
-    subtitle: "What I2V is, why it's hard, and how modern systems solve it.",
+    subtitle: "",
     body: `
-      <h3>What is Image-to-Video Generation?</h3>
-      <p>Image-to-Video (I2V) is the task of generating a temporally coherent video clip from a single still image, optionally guided by a text prompt. Given one frame, the model must invent plausible motion — camera dynamics, object movement, lighting changes — while remaining faithful to the input image.</p>
-      <div class="callout"><strong>Intuition:</strong> hand the model a photograph of a waterfall and ask it to bring it to life. It must decide how the water flows, how mist drifts, how light scatters over time — all inferred from one static frame.</div>
-      <h3>Why is it Difficult?</h3>
+      <h2>What is Image-to-Video Generation?</h2>
+      <p>Image-to-Video (I2V) as the name suggests its a model that converts a image into a video which is optionally guided by a text prompt. Given the Image (frame 1 on that video), the model must invent plausible motion such camera dynamics, object movement, lighting changes, while remaining faithful to the input image.</p>
+
+    <div class="hero-image">
+    <img 
+        src="images/i2v.png" 
+        alt="Image-to-video generation pipeline showing a single image transformed into multiple video frames"
+    />
+    <p class="caption">
+        A single input image is expanded into a temporally consistent sequence of video frames.
+    </p>
+    </div>
+
+
+
+      <div class="callout"><strong>Intuition:</strong> Given a photograph of a waterfall and ask it to bring it to life. It must decide how the water flows, how mist drifts, how light scatters; all inferred from one static frame.</div>
+
+      <h3>What makes it Difficult</h3>
       <ul>
-        <li><strong>Temporal consistency</strong> — objects must remain coherent across frames. A face cannot subtly shift shape between frame 5 and frame 6.</li>
-        <li><strong>Causal structure</strong> — the model must understand that frame N depends only on frames 0 through N−1, not frames yet to come.</li>
-        <li><strong>Scale</strong> — a 4-second 24fps video is 96 frames. Processing them jointly in pixel space is computationally infeasible without compression.</li>
-        <li><strong>Conditioning fidelity</strong> — the generated video must look like the input image, not just be vaguely similar to it.</li>
+        <li><strong>Temporal consistency</strong>: objects must remain coherent across frames. A face cannot subtly shift shape between frame 5 and frame 6.</li>
+        <li><strong>Causal structure</strong>: the model must understand that frame N depends only on frames 0 through N−1, not frames yet to come.</li>
+        <li><strong>Scale</strong>: a 4-second 24fps video is 96 frames. Processing them jointly in pixel space is computationally infeasible without compression.</li>
+        <li><strong>Conditioning fidelity</strong>: the generated video must look like the input image, not just be vaguely similar to it.</li>
       </ul>
-      <h3>The Modern Recipe</h3>
-      <p>State-of-the-art I2V models (WAN, CogVideoX, Open-Sora) all converge on the same architectural pattern:</p>
-      <div class="concept-row">
-        <div class="concept-card"><div class="concept-card-title">Video VAE</div><div class="concept-card-body">Compress video from pixels into a compact 3D latent space. Makes diffusion ~64× cheaper to run.</div></div>
-        <div class="concept-card"><div class="concept-card-title">Diffusion Transformer</div><div class="concept-card-body">A transformer that denoises latent video, attending across space and time simultaneously.</div></div>
-        <div class="concept-card"><div class="concept-card-title">Flow Matching</div><div class="concept-card-body">Training objective that learns straight-line paths from noise to data. Faster and simpler than DDPM.</div></div>
-        <div class="concept-card"><div class="concept-card-title">Conditioning</div><div class="concept-card-body">The input image and text are encoded and injected via cross-attention at every denoising step.</div></div>
-      </div>
-      <h3>What This Series Builds</h3>
+
+<h2>The Modern Recipe</h2>
+
+<p>
+  Modern Image-to-Video models like WAN, CogVideoX, and Open-Sora mostly follow the same high-level design:
+</p>
+
+<div class="concept-row">
+
+  <div class="concept-card">
+    <div class="concept-card-title">Video VAE</div>
+    <div class="concept-card-body">
+      Compresses video into a smaller latent space so generation becomes much cheaper than working directly with pixels.
+    </div>
+  </div>
+
+  <div class="concept-card">
+    <div class="concept-card-title">Diffusion Transformer</div>
+    <div class="concept-card-body">
+      A transformer that generates and denoises video latents while understanding both space and time.
+    </div>
+  </div>
+
+  <div class="concept-card">
+    <div class="concept-card-title">Flow Matching</div>
+    <div class="concept-card-body">
+      A newer training method that learns how to transform noise into realistic video more efficiently.
+    </div>
+  </div>
+
+  <div class="concept-card">
+    <div class="concept-card-title">Conditioning</div>
+    <div class="concept-card-body">
+      The input image and text prompt guide the generation process so the output stays faithful to the original scene.
+    </div>
+  </div>
+
+</div>
+
+<p> Don't worry if you didn't understand anything, By the end of the series you will understand everything properly.
+
+      <h2>What This Series Builds</h2>
       <p>We implement each component from scratch in PyTorch. By the end you will have a structurally faithful I2V pipeline:</p>
-      <div class="diagram">
-        <span class="d-box">Image + Text</span><span class="d-arr">→</span><span class="d-box">VAE Encode</span><span class="d-arr">→</span><span class="d-box">Noisy Latent</span><span class="d-arr">→</span><span class="d-box">DiT Denoise</span><span class="d-arr">→</span><span class="d-box">VAE Decode</span><span class="d-arr">→</span><span class="d-box">Video</span>
-      </div>
+
       <p>If you have worked with LLMs or basic diffusion models before, many ideas here will feel familiar. Let's begin.</p>
     `
   },
   {
     title: "Causal 3D Convolutions",
     tag: "VAE",
-    subtitle: "CausalConv3d",
+    subtitle: "CausalConv3d: Prevents future frame leakage",
     body: `
+      <p>One of the core building blocks of modern video generation architectures is <strong>CausalConv3d</strong>. If you remember, In Transformers we use a causal attention mask so that token <code>t</code> can only see previous tokens. Video generation follows the exact same principle except instead of generating words, we generate frames:</p>
+
+      <samp class="nota">frame₀ → frame₁ → frame₂ → ...</samp>
+
+      <p>Conceptually identical to autoregressive text generation:</p>
+
+      <samp class="nota">word₀ → word₁ → word₂ → ...</samp>
+
+      <h2>Why Do We Need Causal Conv3D?</h2>
+      <p>In video models, we usually work with tensors shaped like: <code>(T × H × W)</code> - time, height, width (I am ignoring the channel dimension here for simplicity).</p><p> For example, <code>8 × 32 × 32</code> means 8 frames of 32×32 resolution. A standard <code>Conv3D</code> with kernel <code>3 × 3 × 3</code> is <em>not causal</em>, so while processing frame <code>t</code>, the convolution may look at <code>[t-1, t, t+1]</code>.</p>
+
+      <div class="callout"><strong>Problem:</strong> during autoregressive generation, frame <code>t+1</code> belongs to the future. The model should never access future frames while generating the current one.</div>
+
+      <p>CausalConv3D fixes this by restricting the kernal to see past and present only:</p>
+
+      <samp class="nota">[t-2, t-1, t]</samp>
+
+      <h2>Temporal Padding</h2>
+      <p>At the beginning of the sequence (<code>t = 0</code>), there are no previous frames, so we pad the beginning of the video along the temporal dimension:</p>
+
+      <samp class="nota">[pad, pad, t0, t1, t2, ...]</samp>
+
+      <div class="callout"><strong>Key idea:</strong> Think of it like adding black frames at the start.</div>
+
+      <h2>Implementation</h2>
+      <span class="code-label">vae/conv.py</span>
+      <pre><span class="c-kw">import</span> torch
+<span class="c-kw">import</span> torch.nn <span class="c-kw">as</span> nn
+<span class="c-kw">import</span> torch.nn.functional <span class="c-kw">as</span> F
 
 
-    <p>
-      Ok so let’s start with the <strong>Causal Convolution 3D layer</strong>.
-    </p>
+<span class="c-kw">class</span> <span class="c-fn">CausalConv3d</span>(nn.Module):
+    <span class="c-str">"""
+    Conv3d that is causal in the time dimension.
+    Spatial dims (H, W) use standard symmetric padding.
+    Time dim uses left-only padding so the kernel never sees future frames.
+    """</span>
 
-    <p>
-      If you remember, in Transformers we have a <strong>causal attention mask</strong>,
-      which prevents the model from seeing future tokens during autoregressive generation.
-    </p>
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int | tuple,
+        stride: int | tuple = <span class="c-num">1</span>,
+        dilation: int | tuple = <span class="c-num">1</span>,
+        bias: bool = <span class="c-kw">True</span>,
+    ):
+        <span class="c-fn">super</span>().__init__()
 
-    <p>For example:</p>
+        <span class="c-kw">if</span> isinstance(kernel_size, int):
+            kernel_size = (kernel_size, kernel_size, kernel_size)
+        <span class="c-kw">if</span> isinstance(stride, int):
+            stride = (stride, stride, stride)
+        <span class="c-kw">if</span> isinstance(dilation, int):
+            dilation = (dilation, dilation, dilation)
 
-    <ul>
-      <li>token <code>t5</code> can only attend to previous tokens</li>
-      <li>it cannot see <code>t6</code>, <code>t7</code>, ...</li>
-    </ul>
+        kt, kh, kw = kernel_size
+        dt, dh, dw = dilation
 
-    <p>
-      Now in video generation, we do something very similar.
-    </p>
+        self.time_pad = (kt - <span class="c-num">1</span>) * dt      <span class="c-cm"># left-only temporal padding</span>
+        pad_h = (kh - <span class="c-num">1</span>) * dh // <span class="c-num">2</span>        <span class="c-cm"># symmetric spatial padding</span>
+        pad_w = (kw - <span class="c-num">1</span>) * dw // <span class="c-num">2</span>
 
-    <p>
-      Instead of generating words, we generate frames over time.
-    </p>
+        self.conv = nn.<span class="c-fn">Conv3d</span>(
+            in_channels, out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            dilation=dilation,
+            padding=(<span class="c-num">0</span>, pad_h, pad_w),
+            bias=bias,
+        )
 
-    <p>So you can think of a video like:</p>
+    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x: torch.Tensor) -> torch.Tensor:
+        <span class="c-cm"># x: (B, C, T, H, W)</span>
+        <span class="c-kw">if</span> self.time_pad > <span class="c-num">0</span>:
+            x = F.<span class="c-fn">pad</span>(x, (<span class="c-num">0</span>, <span class="c-num">0</span>, <span class="c-num">0</span>, <span class="c-num">0</span>, self.time_pad, <span class="c-num">0</span>))
+        <span class="c-kw">return</span> self.<span class="c-fn">conv</span>(x)
 
-    <pre>frame₀ → frame₁ → frame₂ → ...</pre>
 
-    <p>which is somewhat similar to:</p>
+<span class="c-kw">class</span> <span class="c-fn">CausalConv3d_1x1</span>(nn.Module):
+    <span class="c-str">"""Pointwise (1×1×1) conv — no padding needed."""</span>
 
-    <pre>word₀ → word₁ → word₂ → ...</pre>
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, in_channels: int, out_channels: int, bias: bool = <span class="c-kw">True</span>):
+        <span class="c-fn">super</span>().__init__()
+        self.conv = nn.<span class="c-fn">Conv3d</span>(in_channels, out_channels, kernel_size=<span class="c-num">1</span>, bias=bias)
 
-    <h3>Why Do We Need Causal Conv3D?</h3>
+    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x: torch.Tensor) -> torch.Tensor:
+        <span class="c-kw">return</span> self.<span class="c-fn">conv</span>(x)</pre>
 
-    <p>
-      In video models, we usually work with tensors shaped like:
-    </p>
+      <h2>What's Dilation?</h2>
+      <p>Normally when we say kernel size of 3, we take:</p>
+      <samp class="nota">[n-1, n, n+1]</samp>
+      <p>But with dilation, we introduce gaps between the sampled positions.</p>
+      <p>For example: With <code>dilation=2</code>, gaps are inserted between samples:</p>
+      <samp class="nota">[n-2, n, n+2]</samp>
+      <div class="callout"><strong>Effect:</strong> dilation increases the receptive field without increasing kernel size or parameter count. Essential for capturing motion patterns that span multiple frames.</div>
 
-    <pre>(T × H × W)</pre>
+      <div class="concept-row">
+        <div class="concept-card"><div class="concept-card-title">Small dilation</div><div class="concept-card-body">Focuses on local motion and nearby frame relationships.</div></div>
+        <div class="concept-card"><div class="concept-card-title">Large dilation</div><div class="concept-card-body">Captures longer-range temporal dependencies across distant frames.</div></div>
+      </div>
 
-    <p>where:</p>
+      <h2>Why the Padding Formula?</h2>
+      <pre>pad_h    = (kh - 1) * dh // 2   <span class="c-cm"># symmetric, keeps H dimension</span>
+pad_w    = (kw - 1) * dw // 2   <span class="c-cm"># symmetric, keeps W dimension</span>
+time_pad = (kt - 1) * dt        <span class="c-cm"># left-only, causal</span></pre>
 
-    <ul>
-      <li><code>T</code> = time / frames</li>
-      <li><code>H</code> = height</li>
-      <li><code>W</code> = width</li>
-    </ul>
+      <p>Consider <code>Input: 8×32×32</code>, kernel <code>3×3×3</code>, dilation <code>2×2×2</code>. The effective kernel size is:</p>
 
-    <p>For simplicity, let’s assume:</p>
+      <pre>effective = (kernel - 1) × dilation + 1
+          = (3 - 1) × 2 + 1 = 5</pre>
 
-    <pre>Video Shape = 8 × 32 × 32</pre>
+      <p>Without padding, output dimensions would collapse:</p>
 
-    <p>meaning:</p>
+      <pre>T = (8  - 5) + 1 = 4
+H = (32 - 5) + 1 = 28
+W = (32 - 5) + 1 = 28    <span class="c-cm">→ 4×28×28</span></pre>
 
-    <ul>
-      <li>8 frames</li>
-      <li>each frame is 32×32</li>
-    </ul>
+      <p>With our padding (<code>time_pad=4</code>, <code>pad_h=pad_w=2</code>), the padded input becomes <code>12×36×36</code> and if we do the same maths , the output stays <code>8×32×32</code>. Stacking layers without this would collapse the video to nothing.</p>
 
-    <p>
-      Now suppose we use a normal <code>Conv3D</code> layer with kernel size:
-    </p>
+      <h3>Spatial vs. Temporal Padding</h3>
+      <table>
+        <thead><tr><th>Dimension</th><th>Padding</th><th>Reason</th></tr></thead>
+        <tbody>
+          <tr><td>Time</td><td>Left-only</td><td>Future frames must never be visible</td></tr>
+          <tr><td>Height</td><td>Symmetric</td><td>No notion of "future" pixels spatially</td></tr>
+          <tr><td>Width</td><td>Symmetric</td><td>No notion of "future" pixels spatially</td></tr>
+        </tbody>
+      </table>
 
-    <pre>3 × 3 × 3</pre>
-
-    <p>
-      A standard Conv3D is <strong>not causal</strong>.
-    </p>
-
-    <p>So when processing frame <code>t</code>, it may look at:</p>
-
-    <pre>[t-1, t, t+1]</pre>
-
-    <div class="callout">
-      <strong>Problem:</strong>
-      During autoregressive video generation, frame <code>t+1</code> is a future frame.
-      The model should not have access to future information while generating the current frame.
-    </div>
-
-    <h3>Causal Conv3D</h3>
-
-    <p>
-      So what Causal Conv3D does is, it takes:
-    </p>
-
-    <pre>[t-2, t-1, t]</pre>
-
-    <p>
-      So the model only sees the past and present frames.
-    </p>
-
-    <h3>Now at t = 0?</h3>
-
-    <p>
-      At the first frame:
-    </p>
-
-    <pre>t = 0</pre>
-
-    <p>
-      there are no previous frames.
-    </p>
-
-    <p>
-      So we pad the beginning of the video along the temporal dimension.
-    </p>
-
-    <p>
-      Think of it like adding black frames at the start.
-    </p>
-
-    <h3>Temporal Padding</h3>
-
-    <p>So instead of:</p>
-
-    <pre>[t0, t1, t2, t3, ...]</pre>
-
-    <p>we transform it into:</p>
-
-    <pre>[pad, pad, t0, t1, t2, ...]</pre>
-
-    <p>
-      Now when the convolution operates at <code>t0</code>, it sees:
-    </p>
-
-    <pre>[pad, pad, t0]</pre>
-
-  `
-},
+      <h2>Key Takeaways</h2>
+      <ul>
+        <li>CausalConv3D prevents future frame leakage, analogous to causal attention in Transformers</li>
+        <li>Temporal padding is applied left-only; spatial padding is symmetric</li>
+        <li>Dilation expands the receptive field without adding parameters</li>
+        <li>Correct padding preserves output dimensions through deep networks</li>
+      </ul>
+    `
+  },
   {
     title: "3D Residual Blocks",
     tag: "VAE",
-    subtitle: "Stacking depth without losing signal — the backbone of the video encoder and decoder.",
+    subtitle: "The backbone of the video encoder and decoder.",
     body: `
-      <h3>Why Residual Connections?</h3>
-      <p>As we stack convolution layers, two problems emerge: <strong>vanishing gradients</strong> (gradients shrink to near-zero) and <strong>representation collapse</strong> (deep layers struggle to learn the identity function). Residual connections fix both:</p>
-      <pre>output = F(x) + x</pre>
-      <p>If the best a layer can do is nothing, it just needs to learn <code>F(x) = 0</code> — much easier than relearning the identity from scratch. Gradients also flow directly through the skip connection, bypassing nonlinearities.</p>
-      <div class="callout"><strong>Intuition:</strong> residual blocks let each layer focus on learning a small <em>correction</em> to the input, rather than the full transformation. The identity is always "free."</div>
-      <h3>The 3D ResBlock</h3>
-      <p>A video ResBlock applies two CausalConv3d layers with normalization and activation in between, plus a skip connection. We use Group Normalization instead of BatchNorm because video models typically train with small batch sizes and temporal statistics vary across samples.</p>
-      <span class="code-label">resblock3d.py</span>
+      <p>With <code>CausalConv3D</code> in hand, we can build the primary architectural unit of modern video VAEs: <strong>ResBlock3D</strong>.</p>
+      <p>Since we are working on a video, we have 2 diffferent things to work on:</p>
+
+      <div class="concept-row">
+        <div class="concept-card"><div class="concept-card-title">Spatial</div><div class="concept-card-body">Understanding objects, textures, edges, shapes, and appearance inside each frame.</div></div>
+        <div class="concept-card"><div class="concept-card-title">Temporal</div><div class="concept-card-body">Understanding motion, continuity, transitions, and how the scene evolves over time.</div></div>
+      </div>
+
+      <div class="callout"><strong>Habit to develop:</strong> always think separately about how a layer processes spatial vs. temporal information.</div>
+
+      <h2>Architecture</h2>
+      <p>Now let’s first look at the structure of the block so you can better visualize how the input flows through it:</p>
+      <pre>x → GroupNorm → SiLU → CausalConv3D(3×3×3)
+  → GroupNorm → SiLU → CausalConv3D(3×3×3)
+  → + skip(x)</pre>
+
+      <h3>Spatial Understanding</h3>
+      <p>Spatially, CausalConv3D behaves like a standard convolution. Early layers learn low-level patterns - edges, corners, gradients. Deeper layers learn shapes, objects, and scene layouts. This is very similar to how standard CNNs process images.</p>
+
+      <h3>Temporal Understanding</h3>
+      <p>In CausalConv3D, we usually use a temporal kernel size of 3 or 5. So what this block is doing is, its looking at those 3 frames at a time and understanding the "physics" of the scene.</p> 
+      <div class="callout"><strong>Example:</strong> <p>For Example: If you are halfway through a blink in Frame 1 and 2, the 3D kernel helps the model realize that in Frame 3, the eye should be closing further, not suddenly popping wide open.</p></div>
+
+<p>If you say 3 or 5 frames are very less, we dont have only 1 resblock3d, we have multiple stacked over each other so</p>
+      <pre>Layer 1 sees frames [t-1, t, t+1]
+Layer 2 sees three "Layer 1 summaries"
+Layer 3 sees even broader summaries
+...
+Eventually: effective range of 15–20 frames</pre>
+
+      <p>So long story short > Looking at 3 frames allows the model to calculate change. Once it knows the "change" (the delta), it can ensure that the motion is mathematically continuous rather than a series of disconnected snapshots.</p><p>
+
+Now other things are there to stablity the gradient flow and it introduce nonlinerality same as done LLMs.
+</p>
+      <h2>Why Skip Connections?</h2>
+      <p>Because it uses residual(skip) connection. The skip connection allows information and gradients to flow directly through the network without being heavily modified.</p>
+
+<p>This helps:</p>
+<ul>
+  <li>train very deep networks</li>
+  <li>reduce vanishing gradient problems</li>
+  <li>preserve important low-level information</li>
+  <li>improve optimization stability</li>
+</ul>
+
+      <h2>Why do we use Pre-Norm instead of Post-Norm?</h2>
+      <p>Modern architectures prefer <strong>Pre-Norm</strong> - normalization before the transformation, not after the residual addition.</p>
+
+      <p>Post-Norm (older style):</p>
+      <samp class="nota">x → Transform(x) → + skip(x) → Norm → output</samp>
+
+      <p>Pre-Norm (modern style):</p>
+      <samp class="nota">x → Norm → Transform(x) → + skip(x) → output</samp>
+
+      <p>Beacuse in Pre-Norm, the skip path is clean - gradients flow straight through without passing through a normalization layer. This leads to better optimization stability in deep networks.</p>
+
+      <h2>Why did we used GroupNorm instead of BatchNorm or LayerNorm here?</h2>
+
+      <div class="concept-row">
+        <div class="concept-card"><div class="concept-card-title">BatchNorm — not suitable</div><div class="concept-card-body">Depends on batch statistics. Video models run with tiny batch sizes (high memory), making batch stats noisy and training unstable.</div></div>
+        <div class="concept-card"><div class="concept-card-title">LayerNorm — decent but</div><div class="concept-card-body">Normalizes all channels equally. Works great for transformers but may not preserve spatial/channel structure in CNN-style blocks.</div></div>
+      </div>
+
+      <p>GroupNorm divides channels into groups and normalizes each group independently. It is completely independent of batch size and stable even at batch size 1, which is why it is used in diffusion models.</p>
+
+      <h2>Implementation</h2>
+      <span class="code-label">vae/resblock.py</span>
       <pre><span class="c-kw">class</span> <span class="c-fn">ResBlock3D</span>(nn.Module):
-    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, ch, out_ch=<span class="c-kw">None</span>):
-        <span class="c-fn">super</span>().__init__()
-        out = out_ch <span class="c-kw">or</span> ch
-        self.norm1 = nn.<span class="c-fn">GroupNorm</span>(<span class="c-num">32</span>, ch)
-        self.conv1 = <span class="c-fn">CausalConv3d</span>(ch, out, (<span class="c-num">3</span>,<span class="c-num">3</span>,<span class="c-num">3</span>))
-        self.norm2 = nn.<span class="c-fn">GroupNorm</span>(<span class="c-num">32</span>, out)
-        self.conv2 = <span class="c-fn">CausalConv3d</span>(out, out, (<span class="c-num">3</span>,<span class="c-num">3</span>,<span class="c-num">3</span>))
-        self.skip  = nn.<span class="c-fn">Conv3d</span>(ch, out, <span class="c-num">1</span>) <span class="c-kw">if</span> ch != out <span class="c-kw">else</span> nn.<span class="c-fn">Identity</span>()
+    <span class="c-str">"""
+    3D residual block for the VAE encoder/decoder.
 
-    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x):
-        h = self.<span class="c-fn">conv1</span>(F.<span class="c-fn">silu</span>(self.<span class="c-fn">norm1</span>(x)))
-        h = self.<span class="c-fn">conv2</span>(F.<span class="c-fn">silu</span>(self.<span class="c-fn">norm2</span>(h)))
-        <span class="c-kw">return</span> h + self.<span class="c-fn">skip</span>(x)</pre>
-      <h3>Downsampling and Upsampling</h3>
-      <p>To build a VAE we need to progressively shrink resolution (encoding) then expand it back (decoding):</p>
+    Structure:
+        x → Norm → SiLU → Conv3D(3×3×3)
+          → Norm → SiLU → Conv3D(3×3×3)
+          → + skip(x)
+
+    Skip uses a 1×1×1 conv if in/out channels differ, else identity.
+    """</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, in_channels: int, out_channels: int, num_groups: int = <span class="c-num">32</span>):
+        <span class="c-fn">super</span>().__init__()
+
+        self.norm1 = nn.<span class="c-fn">GroupNorm</span>(num_groups, in_channels)
+        self.conv1 = <span class="c-fn">CausalConv3d</span>(in_channels, out_channels, kernel_size=<span class="c-num">3</span>)
+
+        self.norm2 = nn.<span class="c-fn">GroupNorm</span>(num_groups, out_channels)
+        self.conv2 = <span class="c-fn">CausalConv3d</span>(out_channels, out_channels, kernel_size=<span class="c-num">3</span>)
+
+        self.act  = nn.<span class="c-fn">SiLU</span>()
+        self.skip = (
+            <span class="c-fn">CausalConv3d_1x1</span>(in_channels, out_channels)
+            <span class="c-kw">if</span> in_channels != out_channels
+            <span class="c-kw">else</span> nn.<span class="c-fn">Identity</span>()
+        )
+
+    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x: torch.Tensor) -> torch.Tensor:
+        residual = self.<span class="c-fn">skip</span>(x)
+
+        x = self.act(self.norm1(x))
+        x = self.conv1(x)
+        x = self.act(self.norm2(x))
+        x = self.conv2(x)
+
+        <span class="c-kw">return</span> x + residual</pre>
+
+      <h2>Key Takeaways</h2>
       <ul>
-        <li><strong>Downsampling:</strong> strided CausalConv3d with stride (2,2,2) halves T, H, and W.</li>
-        <li><strong>Upsampling:</strong> trilinear interpolation to scale up, followed by a 1×1 conv to adjust channels.</li>
+        <li>ResBlock3D processes spatial and temporal information simultaneously</li>
+        <li>Stacking blocks compounds the temporal receptive field significantly</li>
+        <li>Skip connections stabilize gradient flow in deep networks</li>
+        <li>Pre-Norm produces cleaner gradient paths than Post-Norm</li>
+        <li>GroupNorm is the right choice when batch sizes are small</li>
       </ul>
-      <p>Temporal downsampling remains causal — we only pool from past frames, which is naturally satisfied by causal padding before a strided convolution.</p>
     `
   },
   {
-    title: "Video VAE — Encoder & Decoder",
+    title: "Upsampling and Downsampling",
     tag: "VAE",
-    subtitle: "Compressing video into a compact 3D latent space where diffusion operates affordably.",
+    subtitle: "How video VAEs handle high-resolution videos efficiently.",
     body: `
-      <h3>Why a VAE?</h3>
-      <p>A 512×512 video at 24fps for 4 seconds contains billions of values in pixel space. Running a diffusion model directly on this is completely infeasible. A VAE first compresses the video into a much smaller <em>latent representation</em>, where diffusion operates cheaply.</p>
-      <div class="callout"><strong>Typical compression:</strong> a video of shape (16, 512, 512, 3) compresses to latents of shape (4, 64, 64, 16) — roughly a <strong>768× reduction</strong> in data volume.</div>
-      <h3>Architecture</h3>
-      <div class="diagram">
-        <div><span class="d-box">Video (B,C,T,H,W)</span><span class="d-arr">→</span><span class="d-box">ResBlocks</span><span class="d-arr">→</span><span class="d-box">Downsample ×3</span><span class="d-arr">→</span><span class="d-box">μ, log σ²</span></div>
-        <div><span class="d-box">z = μ + σ·ε</span><span class="d-arr">→</span><span class="d-box">Upsample ×3</span><span class="d-arr">→</span><span class="d-box">ResBlocks</span><span class="d-arr">→</span><span class="d-box">Reconstructed Video</span></div>
+    <p>Now we are gonna talk about one of the most important ideas in video generation architectures:</p>
+      <samp class="nota">How do we process high-resolution videos without exploding compute?</samp>
+
+
+  <p>In LLMs, after encoding, one word becomes something like:</p>
+
+  <samp class="nota">1 × 1024 vector</samp>
+
+
+  <p>For images, things become completely different. Suppose we have a single frame:</p>
+
+  <samp class="nota">1280 × 720</samp>
+
+  <p>If we flatten it, we get:</p>
+
+  <samp class="nota">1 × (1280 × 720)</samp>
+
+  <p>And that is just <strong>one frame</strong>.</p>
+
+  <div class="callout"><strong>Now imagine video:</strong> 24 frames per second × multiple seconds × high resolution. The compute cost grows absurdly fast.</div>
+
+  <p>So modern video VAEs always do:</p>
+
+  <samp class="nota">compress → process → reconstruct</samp>
+
+  <p>To handle this efficiently, we use:</p>
+
+  <div class="concept-row">
+
+    <div class="concept-card">
+      <div class="concept-card-title">Downsampling</div>
+      <div class="concept-card-body">
+        Reduce resolution so the model can process videos cheaply in latent space.
       </div>
-      <p>The encoder outputs a mean <code>μ</code> and log-variance <code>log σ²</code> for each spatial-temporal position. We sample <code>z = μ + σ·ε</code> where <code>ε ~ N(0, I)</code>. The decoder reconstructs video from <code>z</code>.</p>
-      <h3>The VAE Loss</h3>
-      <p>Training requires two competing losses:</p>
-      <ul>
-        <li><strong>Reconstruction loss</strong> — how faithfully does the decoder reconstruct the original video? Typically L1 or a perceptual loss.</li>
-        <li><strong>KL divergence</strong> — regularizes the latent space toward N(0, I), ensuring it is smooth and continuous for diffusion.</li>
-      </ul>
-      <pre><span class="c-cm"># KL divergence</span>
-kl = -<span class="c-num">0.5</span> * torch.<span class="c-fn">mean</span>(<span class="c-num">1</span> + logvar - mu.pow(<span class="c-num">2</span>) - logvar.exp())
-loss = recon_loss + kl_weight * kl</pre>
-      <h3>Temporal Coherence in the Decoder</h3>
-      <p>The decoder must produce <em>temporally smooth</em> output. Causal convolutions in the decoder ensure each decoded frame is consistent with all prior frames, preventing flickering artifacts that arise from naive frame-by-frame decoding.</p>
-      <p>The VAE is trained independently first, then kept <strong>frozen</strong> while the DiT is trained. This modular approach lets you swap in stronger VAEs without retraining the full pipeline.</p>
-    `
+    </div>
+
+    <div class="concept-card">
+      <div class="concept-card-title">Upsampling</div>
+      <div class="concept-card-body">
+        Restore compressed latent representations back into full-resolution video frames.
+      </div>
+    </div>
+
+  </div>
+
+  <p>Again, just like before, we should always think separately about:</p>
+
+  <div class="concept-row">
+
+    <div class="concept-card">
+      <div class="concept-card-title">Spatial</div>
+      <div class="concept-card-body">
+        Height and width - visual detail inside each frame.
+      </div>
+    </div>
+
+    <div class="concept-card">
+      <div class="concept-card-title">Temporal</div>
+      <div class="concept-card-body">
+        Time dimension - motion and continuity across frames.
+      </div>
+    </div>
+
+  </div>
+
+  <h2>Spatial Downsampling</h2>
+
+  <p>For spatial downsampling, the idea is very straightforward:</p>
+
+  <samp class="nota">(H × W) → (H/2 × W/2)</samp>
+
+  <p>while keeping the temporal dimension unchanged.</p>
+
+  <p>We achieve this using our existing <code>CausalConv3d</code> with:</p>
+
+  <pre>stride = (1, 2, 2)</pre>
+
+  <p>If you remember, <code>CausalConv3d</code> behaves exactly like a normal convolution along spatial dimensions. The causal behavior only applies to time.</p>
+
+  <div class="callout"><strong>Key idea:</strong> stride controls how aggressively we compress dimensions. A stride of 2 halves the resolution.</div>
+
+  <p>So if the input is:</p>
+
+  <pre>Input  → 8 × 256 × 256
+    Output → 8 × 128 × 128</pre>
+
+      <p>Temporal length stays identical.</p>
+
+  <h2>Spatial Upsampling</h2>
+
+  <p>Later in the decoder, we need to reconstruct the original resolution.</p>
+
+  <p>For this, we do the opposite:</p>
+
+  <samp class="nota">(H × W) → (2H × 2W)</samp>
+
+  <p>The simplest approach is interpolation.</p>
+
+  <p>We first enlarge the spatial dimensions using nearest-neighbor interpolation, then run a convolution afterwards to refine the details.</p>
+
+  <div class="callout"><strong>Why not transpose convolution?</strong> Transposed convolutions often create checkerboard artifacts. Interpolate + Conv is usually more stable and cleaner.</div>
+
+  <p>If you look at the implementation, it is actually very straightforward.</p>
+
+  <h2>Temporal Downsampling</h2>
+
+  <p>Now let’s think about the temporal dimension.</p>
+
+  <p>Exactly like spatial compression, we also reduce the number of frames:</p>
+
+  <samp class="nota">T → T/2</samp>
+
+  <p>using:</p>
+
+  <pre>stride = (2, 1, 1)</pre>
+
+  <p>Notice now the stride is applied only along time.</p>
+
+  <div class="callout"><strong>Important:</strong> for Image-to-Video generation, we preserve the very first frame.</div>
+
+  <p>Why?</p>
+
+  <p>Because the first frame comes directly from the input image. Our video must use that image as it is as it's first frame.</p>
+
+  <p>If we aggressively downsample or distort frame 0, the generated video may drift away from the input image.</p>
+
+  <p>So the pipeline becomes:</p>
+
+  <pre>[frame₀] + downsample(frame₁ → frameₙ)</pre>
+
+  <p>The first frame remains untouched and clean.</p>
+
+  <h2>Temporal Upsampling</h2>
+
+  <p>Temporal upsampling mirrors the same idea.</p>
+
+  <p>We interpolate along the time dimension:</p>
+
+  <samp class="nota">T → 2T</samp>
+
+  <p>then refine using a causal convolution.</p>
+
+  <p>Again, we preserve the first frame exactly as-is.</p>
+
+  <div class="callout"><strong>Think of it this way:</strong> the first frame is the visual identity of the video. Everything else evolves from it.</div>
+
+  <h2>Implementation</h2>
+
+  <span class="code-label">vae/block.py</span>
+
+  <pre>
+<span class="c-kw">class</span> <span class="c-fn">SpatialDownsample</span>(nn.Module):
+<span class="c-str">"""
+2× spatial (H, W) downsampling via strided conv.
+Time dimension is untouched: stride = (1, 2, 2).
+"""</span>
+
+<span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, in_channels: int, out_channels: int):
+    <span class="c-fn">super</span>().__init__()
+
+    self.conv = <span class="c-fn">CausalConv3d</span>(
+        in_channels, out_channels,
+        kernel_size=(<span class="c-num">1</span>, <span class="c-num">3</span>, <span class="c-num">3</span>),
+        stride=(<span class="c-num">1</span>, <span class="c-num">2</span>, <span class="c-num">2</span>),
+    )
+
+<span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x: torch.Tensor) -> torch.Tensor:
+    <span class="c-kw">return</span> self.<span class="c-fn">conv</span>(x)
+
+<span class="c-kw">class</span> <span class="c-fn">TemporalDownsample</span>(nn.Module):
+<span class="c-str">"""
+2× temporal downsampling via strided causal conv.
+Spatial dims stay unchanged.
+
+Frame 0 is preserved for I2V conditioning.
+"""</span>
+
+<span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, in_channels: int, out_channels: int, keep_first: bool = <span class="c-kw">True</span>):
+    <span class="c-fn">super</span>().__init__()
+
+    self.keep_first = keep_first
+
+    self.conv = <span class="c-fn">CausalConv3d</span>(
+        in_channels, out_channels,
+        kernel_size=(<span class="c-num">3</span>, <span class="c-num">1</span>, <span class="c-num">1</span>),
+        stride=(<span class="c-num">2</span>, <span class="c-num">1</span>, <span class="c-num">1</span>),
+    )
+
+<span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x: torch.Tensor) -> torch.Tensor:
+
+    <span class="c-kw">if</span> self.keep_first:
+
+        first = x[:, :, :<span class="c-num">1</span>, :, :]
+        rest  = x[:, :, <span class="c-num">1</span>:, :, :]
+
+        rest = self.<span class="c-fn">conv</span>(rest)
+
+        <span class="c-kw">return</span> torch.<span class="c-fn">cat</span>([first, rest], dim=<span class="c-num">2</span>)
+
+    <span class="c-kw">return</span> self.<span class="c-fn">conv</span>(x)</pre>
+
+  <span class="code-label">vae/block.py</span>
+
+  <pre>
+<span class="c-kw">class</span> <span class="c-fn">SpatialUpsample</span>(nn.Module):
+<span class="c-str">"""
+2× spatial upsampling.
+interpolate + conv avoids checkerboard artifacts.
+"""</span>
+
+<span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, in_channels: int, out_channels: int):
+    <span class="c-fn">super</span>().__init__()
+
+    self.conv = <span class="c-fn">CausalConv3d</span>(
+        in_channels,
+        out_channels,
+        kernel_size=(<span class="c-num">1</span>, <span class="c-num">3</span>, <span class="c-num">3</span>)
+    )
+
+<span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x: torch.Tensor) -> torch.Tensor:
+
+    B, C, T, H, W = x.shape
+
+    x = x.<span class="c-fn">permute</span>(<span class="c-num">0</span>, <span class="c-num">2</span>, <span class="c-num">1</span>, <span class="c-num">3</span>, <span class="c-num">4</span>)
+    x = x.<span class="c-fn">reshape</span>(B * T, C, H, W)
+
+    x = F.<span class="c-fn">interpolate</span>(
+        x,
+        scale_factor=<span class="c-num">2.0</span>,
+        mode=<span class="c-str">"nearest"</span>
+    )
+
+    x = x.<span class="c-fn">reshape</span>(B, T, C, H * <span class="c-num">2</span>, W * <span class="c-num">2</span>)
+    x = x.<span class="c-fn">permute</span>(<span class="c-num">0</span>, <span class="c-num">2</span>, <span class="c-num">1</span>, <span class="c-num">3</span>, <span class="c-num">4</span>)
+
+    <span class="c-kw">return</span> self.<span class="c-fn">conv</span>(x)
+
+<span class="c-kw">class</span> <span class="c-fn">TemporalUpsample</span>(nn.Module):
+<span class="c-str">"""
+2× temporal upsampling.
+Mirrors TemporalDownsample logic.
+"""</span>
+
+<span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, in_channels: int, out_channels: int, keep_first: bool = <span class="c-kw">True</span>):
+    <span class="c-fn">super</span>().__init__()
+
+    self.keep_first = keep_first
+
+    self.conv = <span class="c-fn">CausalConv3d</span>(
+        in_channels,
+        out_channels,
+        kernel_size=(<span class="c-num">3</span>, <span class="c-num">1</span>, <span class="c-num">1</span>)
+    )
+
+<span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x: torch.Tensor) -> torch.Tensor:
+
+    <span class="c-kw">if</span> self.keep_first:
+
+        first = x[:, :, :<span class="c-num">1</span>, :, :]
+        rest  = x[:, :, <span class="c-num">1</span>:, :, :]
+
+        rest = F.<span class="c-fn">interpolate</span>(
+            rest,
+            scale_factor=(<span class="c-num">2.0</span>, <span class="c-num">1.0</span>, <span class="c-num">1.0</span>),
+            mode=<span class="c-str">"nearest"</span>
+        )
+
+        rest = self.<span class="c-fn">conv</span>(rest)
+
+        <span class="c-kw">return</span> torch.<span class="c-fn">cat</span>([first, rest], dim=<span class="c-num">2</span>)
+
+    x = F.<span class="c-fn">interpolate</span>(
+        x,
+        scale_factor=(<span class="c-num">2.0</span>, <span class="c-num">1.0</span>, <span class="c-num">1.0</span>),
+        mode=<span class="c-str">"nearest"</span>
+    )
+
+    <span class="c-kw">return</span> self.<span class="c-fn">conv</span>(x)</pre>
+
+  <h2>Why Separate Spatial and Temporal Compression?</h2>
+
+  <p>Because spatial information and temporal information behave very differently.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Dimension</th>
+        <th>Represents</th>
+        <th>Usually Compress More Aggressively?</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Spatial</td>
+        <td>Visual detail inside frames</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <td>Temporal</td>
+        <td>Motion continuity across frames</td>
+        <td>More carefully</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>If temporal compression becomes too aggressive:</p>
+
+  <ul>
+    <li>motion becomes jumpy</li>
+    <li>videos lose smoothness</li>
+    <li>objects teleport between frames</li>
+  </ul>
+
+  <p>So most architectures compress space much more aggressively than time.</p>
+
+  <h2>Key Takeaways</h2>
+
+  <ul>
+    <li>Video generation is computationally massive because videos contain huge spatial and temporal information</li>
+    <li>Downsampling compresses video into a cheaper latent representation</li>
+    <li>Frame 0 is preserved in I2V models because it anchors the generated video to the input image</li>
+    <li>Upsampling reconstructs resolution using interpolate + convolution</li>
+    <li>Spatial and temporal dimensions are usually handled separately</li>
+  </ul>
+     `
   },
-  {
-    title: "Rotary Positional Embeddings",
-    tag: "DiT",
-    subtitle: "Encoding 3D position in space and time without learned lookup tables.",
-    body: `
-      <h3>The Positional Encoding Problem</h3>
-      <p>Transformers process tokens as an unordered set — they have no inherent sense of which token comes before another. For video, position is three-dimensional: height, width, and time. We need to inform the model of each token's location in all three axes.</p>
-      <p>Classic absolute positional embeddings (added to token embeddings) work but generalize poorly to video lengths not seen during training.</p>
-      <h3>RoPE: Rotating Queries and Keys</h3>
-      <p>Rotary Positional Embeddings (RoPE) encode position by <em>rotating</em> the query and key vectors before computing attention, rather than adding a fixed offset to the tokens. The key property: the dot product <code>q·k</code> depends only on the <em>relative position</em> of the two tokens, not their absolute positions.</p>
-      <div class="callout"><strong>Why this matters:</strong> relative position encoding generalizes naturally. A token three steps away always has the same relationship, regardless of where in the video it appears — enabling better length generalization.</div>
-      <h3>Extending RoPE to 3D</h3>
-      <p>We split the embedding dimensions across three axes — temporal (t), vertical (y), horizontal (x) — and apply independent rotations per axis:</p>
-      <span class="code-label">rope.py (simplified)</span>
-      <pre><span class="c-kw">def</span> <span class="c-fn">get_3d_rope_freqs</span>(T, H, W, dim):
-    dt, dh, dw = dim // <span class="c-num">4</span>, dim // <span class="c-num">4</span>, dim // <span class="c-num">2</span>
-    freq_t = <span class="c-fn">sincos_freqs</span>(T, dt)  <span class="c-cm"># (T, dt)</span>
-    freq_h = <span class="c-fn">sincos_freqs</span>(H, dh)  <span class="c-cm"># (H, dh)</span>
-    freq_w = <span class="c-fn">sincos_freqs</span>(W, dw)  <span class="c-cm"># (W, dw)</span>
-    <span class="c-kw">return</span> freq_t, freq_h, freq_w
-
-<span class="c-kw">def</span> <span class="c-fn">apply_rope</span>(q, k, freqs):
-    <span class="c-kw">return</span> <span class="c-fn">rotate_half</span>(q, freqs), <span class="c-fn">rotate_half</span>(k, freqs)</pre>
-      <h3>Frequency Bands</h3>
-      <div class="concept-row">
-        <div class="concept-card"><div class="concept-card-title">Low Frequencies</div><div class="concept-card-body">Distinguish tokens far apart — are we in the first or second half of the video sequence?</div></div>
-        <div class="concept-card"><div class="concept-card-title">High Frequencies</div><div class="concept-card-body">Distinguish adjacent tokens — is this pixel one step left or right of that one?</div></div>
-      </div>
-      <p>The temporal axis uses a lower base frequency (videos are shorter in frame count than they are wide in pixels), and spatial axes use higher base frequencies to resolve fine-grained position. This is applied <em>inside</em> the attention computation, not added to token embeddings.</p>
-    `
-  },
-  {
-    title: "Self-Attention & Cross-Attention",
-    tag: "DiT",
-    subtitle: "How video tokens communicate across space, time, and conditioning signals.",
-    body: `
-      <h3>Attention in One Sentence</h3>
-      <p>Attention lets every token ask a question (query), listen to every other token's answer (key-value pair), and aggregate information weighted by relevance:</p>
-      <pre>Attention(Q, K, V) = softmax( QKᵀ / √d ) · V</pre>
-      <h3>Self-Attention over Video Tokens</h3>
-      <p>In a video DiT, we flatten the 3D latent (T×H×W) into a 1D sequence of tokens, then run self-attention across all of them. Every frame attends to every other frame, and every spatial position attends to every other position — enabling global temporal consistency.</p>
-      <div class="callout"><strong>Cost:</strong> full 3D self-attention is O(N²) where N = T×H×W. For a 16-frame 64×64 latent, N = 65,536. This is expensive but manageable with Flash Attention, which avoids materializing the full N×N matrix.</div>
-      <h3>Cross-Attention for Conditioning</h3>
-      <p>While self-attention lets video tokens talk to each other, cross-attention lets them receive information from the conditioning signals (text and image). Queries come from video tokens; keys and values come from the conditioning context:</p>
-      <span class="code-label">attention.py</span>
-      <pre><span class="c-kw">class</span> <span class="c-fn">CrossAttention</span>(nn.Module):
-    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, dim, ctx_dim, heads=<span class="c-num">8</span>):
-        <span class="c-fn">super</span>().__init__()
-        self.to_q   = nn.<span class="c-fn">Linear</span>(dim, dim)
-        self.to_kv  = nn.<span class="c-fn">Linear</span>(ctx_dim, dim * <span class="c-num">2</span>)
-        self.to_out = nn.<span class="c-fn">Linear</span>(dim, dim)
-
-    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x, context):
-        q    = self.<span class="c-fn">to_q</span>(x)
-        k, v = self.<span class="c-fn">to_kv</span>(context).<span class="c-fn">chunk</span>(<span class="c-num">2</span>, dim=-<span class="c-num">1</span>)
-        out  = <span class="c-fn">scaled_dot_product_attention</span>(q, k, v)
-        <span class="c-kw">return</span> self.<span class="c-fn">to_out</span>(out)</pre>
-      <h3>Efficiency Techniques</h3>
-      <div class="concept-row">
-        <div class="concept-card"><div class="concept-card-title">Flash Attention</div><div class="concept-card-body">Reorders computation to avoid storing the full N×N attention matrix. Essential for long video sequences.</div></div>
-        <div class="concept-card"><div class="concept-card-title">Windowed Attention</div><div class="concept-card-body">Restrict attention to a local neighborhood. Reduces O(N²) to O(N·W), trading global context for speed.</div></div>
-      </div>
-      <p>RoPE frequencies from the previous section are applied <em>inside</em> the attention computation — the query and key vectors are rotated by positional frequencies before the dot product is computed.</p>
-    `
-  },
-  {
-    title: "Adaptive LayerNorm & DiT Blocks",
-    tag: "DiT",
-    subtitle: "How the diffusion timestep and conditioning modulate every layer of the transformer.",
-    body: `
-      <h3>The DiT Architecture</h3>
-      <p>The Diffusion Transformer (DiT) is a standard transformer stack — self-attention, cross-attention, feed-forward MLP — but with one key modification: the normalization layers are <em>adaptive</em>. Their scale and shift parameters are predicted from the current diffusion timestep, not learned as static parameters.</p>
-      <h3>Why Adaptive Normalization?</h3>
-      <p>The model sees different noise levels at each timestep. A latent that is 90% noise requires very different processing from one that is 10% noise. Conditioning on the timestep only via an added token embedding is too weak — we need the timestep to <em>modulate the entire computation</em> at every layer.</p>
-      <div class="callout"><strong>adaLN:</strong> instead of fixed learnable γ and β, we predict them from the timestep embedding. Every DiT layer gets its own scale and shift, conditioned on the current noise level.</div>
-      <h3>adaLN-Zero Initialization</h3>
-      <p>The output projection of each adaptive block is initialized to zero. At initialization the block is an identity function, giving the model a well-behaved starting point. It gradually learns to use the conditioning signal during training.</p>
-      <span class="code-label">dit_block.py</span>
-      <pre><span class="c-kw">class</span> <span class="c-fn">AdaLN</span>(nn.Module):
-    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, dim, cond_dim):
-        <span class="c-fn">super</span>().__init__()
-        self.norm = nn.<span class="c-fn">LayerNorm</span>(dim, elementwise_affine=<span class="c-kw">False</span>)
-        self.mlp  = nn.<span class="c-fn">Sequential</span>(nn.<span class="c-fn">SiLU</span>(),
-                                     nn.<span class="c-fn">Linear</span>(cond_dim, <span class="c-num">2</span> * dim))
-
-    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x, c):
-        shift, scale = self.<span class="c-fn">mlp</span>(c).<span class="c-fn">chunk</span>(<span class="c-num">2</span>, dim=-<span class="c-num">1</span>)
-        <span class="c-kw">return</span> self.<span class="c-fn">norm</span>(x) * (<span class="c-num">1</span> + scale) + shift
-
-<span class="c-kw">class</span> <span class="c-fn">DiTBlock</span>(nn.Module):
-    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, dim, heads, ctx_dim):
-        <span class="c-fn">super</span>().__init__()
-        self.n1, self.attn  = <span class="c-fn">AdaLN</span>(dim, ctx_dim), <span class="c-fn">SelfAttention</span>(dim, heads)
-        self.n2, self.cross = <span class="c-fn">AdaLN</span>(dim, ctx_dim), <span class="c-fn">CrossAttention</span>(dim, ctx_dim)
-        self.n3, self.ff    = <span class="c-fn">AdaLN</span>(dim, ctx_dim), <span class="c-fn">FeedForward</span>(dim)
-
-    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x, c, ctx):
-        x = x + self.attn(self.n1(x, c))
-        x = x + self.cross(self.n2(x, c), ctx)
-        x = x + self.ff(self.n3(x, c))
-        <span class="c-kw">return</span> x</pre>
-      <h3>Timestep Embedding</h3>
-      <div class="concept-row">
-        <div class="concept-card"><div class="concept-card-title">Sinusoidal Projection</div><div class="concept-card-body">Maps the scalar t to a 256-dim vector using sine/cosine at different frequencies. Gives smooth interpolation across timesteps.</div></div>
-        <div class="concept-card"><div class="concept-card-title">MLP Refinement</div><div class="concept-card-body">Two linear layers with SiLU activation map sinusoidal features to the model's hidden dimension d.</div></div>
-      </div>
-    `
-  },
-  {
-    title: "Flow Matching",
-    tag: "Flow",
-    subtitle: "A cleaner training objective that replaces DDPM — faster to train, fewer inference steps.",
-    body: `
-      <h3>The Problem with DDPM</h3>
-      <p>Denoising Diffusion Probabilistic Models add noise via a fixed Markov chain and learn to reverse it. They work well, but training requires carefully tuned noise schedules and inference requires hundreds of denoising steps.</p>
-      <h3>Flow Matching</h3>
-      <p>Flow matching learns a <strong>vector field</strong> that moves samples from noise to data. The simplest version uses <em>straight-line paths</em>: the flow from noise <code>x₀ ~ N(0,I)</code> to data <code>x₁</code> is the straight line between them.</p>
-      <div class="callout"><strong>Rectified Flow:</strong> at any t ∈ [0,1], the interpolated sample is <em>xₜ = (1−t)·x₀ + t·x₁</em>. The target velocity is the constant <em>v = x₁ − x₀</em>. The model learns to predict this velocity — much simpler than DDPM's time-varying noise prediction.</div>
-      <h3>Training</h3>
-      <span class="code-label">flow_matching.py</span>
-      <pre><span class="c-kw">def</span> <span class="c-fn">flow_matching_loss</span>(model, x1, cond):
-    B  = x1.shape[<span class="c-num">0</span>]
-    t  = torch.<span class="c-fn">rand</span>(B, device=x1.device)
-    x0 = torch.<span class="c-fn">randn_like</span>(x1)
-    t_ = t[:,<span class="c-kw">None</span>,<span class="c-kw">None</span>,<span class="c-kw">None</span>,<span class="c-kw">None</span>]
-    xt = (<span class="c-num">1</span> - t_) * x0 + t_ * x1   <span class="c-cm"># interpolate</span>
-    v_pred   = <span class="c-fn">model</span>(xt, t, cond)
-    v_target = x1 - x0               <span class="c-cm"># straight-line velocity</span>
-    <span class="c-kw">return</span> F.<span class="c-fn">mse_loss</span>(v_pred, v_target)</pre>
-      <h3>Inference: Euler Integration</h3>
-      <p>Start from pure noise and integrate the learned velocity forward:</p>
-      <pre>x = torch.<span class="c-fn">randn</span>(B, C, T, H, W)
-<span class="c-kw">for</span> t <span class="c-kw">in</span> torch.<span class="c-fn">linspace</span>(<span class="c-num">0</span>, <span class="c-num">1</span>, steps=<span class="c-num">20</span>):
-    v = <span class="c-fn">model</span>(x, t, cond)
-    x = x + v / steps</pre>
-      <p>Because paths are straight lines, good samples emerge in as few as 10–20 steps — far fewer than DDPM's typical 1000. This is why WAN, CogVideoX, and most recent video models have adopted flow matching.</p>
-      <div class="concept-row">
-        <div class="concept-card"><div class="concept-card-title">DDPM</div><div class="concept-card-body">Learns curved denoising paths. Requires ~1000 steps at inference. Sensitive to noise schedule choice.</div></div>
-        <div class="concept-card"><div class="concept-card-title">Flow Matching</div><div class="concept-card-body">Learns straight-line paths. 10–20 inference steps. Simple MSE training objective. Scales well to video.</div></div>
-      </div>
-    `
-  },
-  {
-    title: "Text & Image Conditioning",
-    tag: "Conditioning",
-    subtitle: "Encoding what we want the video to look like and injecting it at every denoising step.",
-    body: `
-      <h3>Two Conditioning Signals</h3>
-      <p>An I2V model is guided by two sources: a <strong>reference image</strong> (the first frame, which the video must start from) and an optional <strong>text prompt</strong> (describing desired motion or scene). Each must be encoded into a form the DiT can consume via cross-attention.</p>
-      <h3>Text Encoding</h3>
-      <p>Text is encoded with a frozen T5 or CLIP text encoder. The encoder outputs one dense embedding per token. These become the <em>keys and values</em> in the cross-attention layers:</p>
-      <span class="code-label">encoders.py</span>
-      <pre><span class="c-kw">from</span> transformers <span class="c-kw">import</span> T5EncoderModel, T5Tokenizer
-
-tokenizer = T5Tokenizer.<span class="c-fn">from_pretrained</span>(<span class="c-str">"t5-base"</span>)
-encoder   = T5EncoderModel.<span class="c-fn">from_pretrained</span>(<span class="c-str">"t5-base"</span>)
-
-<span class="c-kw">def</span> <span class="c-fn">encode_text</span>(prompt):
-    tokens = <span class="c-fn">tokenizer</span>(prompt, return_tensors=<span class="c-str">"pt"</span>, padding=<span class="c-kw">True</span>)
-    <span class="c-kw">with</span> torch.no_grad():
-        out = <span class="c-fn">encoder</span>(**tokens)
-    <span class="c-kw">return</span> out.last_hidden_state  <span class="c-cm"># (B, seq_len, d)</span></pre>
-      <h3>Image Conditioning — The I2V Key Ingredient</h3>
-      <p>Two complementary strategies are used together in most production I2V models:</p>
-      <div class="concept-row">
-        <div class="concept-card"><div class="concept-card-title">Latent Concatenation</div><div class="concept-card-body">Encode the reference image with the VAE encoder. Concatenate it with the noisy video latent along the channel dimension. The DiT sees both at every step, preserving pixel-level fidelity.</div></div>
-        <div class="concept-card"><div class="concept-card-title">CLIP Image Embedding</div><div class="concept-card-body">Encode the image with CLIP's visual encoder for semantic representation. Added to the text tokens as additional cross-attention context.</div></div>
-      </div>
-      <h3>Classifier-Free Guidance</h3>
-      <p>To strengthen conditioning, we train with <strong>CFG</strong>: with ~15% probability, drop all conditioning and train unconditionally. At inference, combine both predictions:</p>
-      <pre>v_guided = v_uncond + scale * (v_cond - v_uncond)</pre>
-      <p>Scale 1.0 is unconditional; 7.0 is strongly conditional. This lets you dial adherence to the image and text without retraining.</p>
-      <div class="callout"><strong>Key insight:</strong> CFG doesn't need a separate classifier. The same model produces both conditional and unconditional predictions by simply nullifying the conditioning tokens during the unconditional forward pass.</div>
-    `
-  },
-  {
-    title: "The Training Pipeline",
-    tag: "Training",
-    subtitle: "Connecting all components and training the full I2V system end-to-end.",
-    body: `
-      <h3>Everything Together</h3>
-      <p>We now have every component. Training connects them in sequence: encode video to latents, sample a timestep and noise, run the DiT, compute the flow matching loss, and update weights.</p>
-      <div class="diagram">
-        <div><span class="d-box">Video batch</span><span class="d-arr">→</span><span class="d-box">VAE.encode()</span><span class="d-arr">→</span><span class="d-box">Latents z₁</span></div>
-        <div><span class="d-box">Interpolate → zₜ</span><span class="d-arr">→</span><span class="d-box">DiT(zₜ, t, cond)</span><span class="d-arr">→</span><span class="d-box">v_pred</span><span class="d-arr">→</span><span class="d-box">FM Loss</span></div>
-      </div>
-      <span class="code-label">train.py</span>
-      <pre><span class="c-kw">for</span> batch <span class="c-kw">in</span> dataloader:
-    video, image, text = batch
-
-    <span class="c-kw">with</span> torch.no_grad():
-        z1   = vae.<span class="c-fn">encode</span>(video)           <span class="c-cm"># frozen VAE</span>
-        cond = <span class="c-fn">encode_conditions</span>(image, text)
-
-    loss = <span class="c-fn">flow_matching_loss</span>(dit, z1, cond)
-
-    optimizer.<span class="c-fn">zero_grad</span>()
-    loss.<span class="c-fn">backward</span>()
-    optimizer.<span class="c-fn">step</span>()
-    ema.<span class="c-fn">update</span>(dit)</pre>
-      <h3>Practical Considerations</h3>
-      <div class="concept-row">
-        <div class="concept-card"><div class="concept-card-title">Gradient Checkpointing</div><div class="concept-card-body">Recompute activations during backward pass instead of storing them. Trades compute for memory — essential for video.</div></div>
-        <div class="concept-card"><div class="concept-card-title">Mixed Precision (bf16)</div><div class="concept-card-body">Train in bfloat16 with fp32 master weights. Halves memory with negligible loss on modern GPUs.</div></div>
-        <div class="concept-card"><div class="concept-card-title">EMA Weights</div><div class="concept-card-body">Maintain an exponential moving average of weights. The EMA model is used for sampling — more stable and higher quality.</div></div>
-        <div class="concept-card"><div class="concept-card-title">Frame Dropout</div><div class="concept-card-body">Randomly vary the number of training frames per batch. Teaches the model to handle variable-length video at inference time.</div></div>
-      </div>
-      <h3>What Comes Next</h3>
-      <p>This completes the NanoI2V series. You now understand every component of a modern I2V pipeline — from causal 3D convolutions to the full training loop. Logical next steps:</p>
-      <ul>
-        <li>Scale up: larger DiT, more data, longer video.</li>
-        <li>Add video-specific losses: temporal perceptual loss, optical flow consistency.</li>
-        <li>Read the WAN, CogVideoX, and Open-Sora papers to see how production systems extend these ideas.</li>
-      </ul>
-      <div class="callout"><strong>Thank you for following along.</strong> If this series was useful, a ⭐ on GitHub helps it reach more builders and researchers.</div>
-    `
-  }
 ];
 
 let current = 0;
@@ -960,16 +1319,20 @@ function buildTopicList() {
 }
 
 function showHome() {
+  history.replaceState(null, null, ' ');
   document.getElementById('home-view').classList.add('active');
   document.getElementById('lesson-view').classList.remove('active');
   document.getElementById('nav-progress').textContent = '';
   window.scrollTo(0, 0);
 }
 
-function showLesson(i) {
+function showLesson(i, updateHash = true) {
   current = i;
   const l = lessons[i];
 
+  if (updateHash) {
+    updateURL(i);
+    }
   document.getElementById('l-num').textContent = `${String(i+1).padStart(2,'0')} / ${lessons.length}`;
   document.getElementById('l-tag').textContent = l.tag;
   document.getElementById('l-title').textContent = l.title;
@@ -982,7 +1345,7 @@ function showLesson(i) {
   btnP.disabled = i === 0;
   btnN.disabled = i === lessons.length - 1;
   document.getElementById('prev-title').textContent = i > 0 ? lessons[i-1].title : '';
-  document.getElementById('next-title').textContent = i < lessons.length-1 ? lessons[i+1].title : '';
+  document.getElementById('next-title').textContent = i < lessons.length - 1 ? lessons[i+1].title : '';
 
   document.getElementById('home-view').classList.remove('active');
   const lv = document.getElementById('lesson-view');
@@ -1001,6 +1364,7 @@ function navigate(dir) {
 }
 
 buildTopicList();
+loadFromURL();
 </script>
 </body>
 </html>

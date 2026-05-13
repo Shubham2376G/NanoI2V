@@ -1,131 +1,89 @@
-# Building an Image-to-Video (I2V) Model from Scratch
+# NanoI2V — Building an Image-to-Video Model from Scratch
 
-Over the past few months, I moved from coding LLMs to working on diffusion-based video generation models inspired by architectures like WAN, DiT, and modern open-source video models 
+Over the past few months, I moved from coding LLMs to working on diffusion-based video generation models, inspired by architectures like WAN, CogVideoX, and modern open-source video systems.
 
-These systems are capable of generating coherent videos from a single image; producing motion, temporal consistency, camera dynamics, and cinematic outputs 
+These models generate coherent video from a single image - producing motion, temporal consistency, camera dynamics, and cinematic output. But how do they actually work under the hood?
 
-But how do these models actually work under the hood? 
-
-This repository is a step-by-step learning series where we build and understand the core components behind modern Image-to-Video (I2V) models from scratch.
-
-Instead of treating video generation like magic, we’ll break everything down into small understandable modules and implement them one piece at a time
+This repository is a step-by-step series where we build every core component of a modern I2V pipeline from scratch.
 
 ---
 
-#  What This Series Covers
 
-We’ll gradually build the components used in modern diffusion video pipelines, including:
-
-- ✅ Video VAEs (3D latent compression)
-- ✅ Causal 3D convolutions
-- ✅ Diffusion Transformers (DiT)
-- ✅ Rotary Positional Embeddings (RoPE)
-- ✅ Self & Cross Attention
-- ✅ Adaptive LayerNorm (adaLN)
-- ✅ Flow Matching
-- ✅ Text/Image Conditioning
-- ✅ Schedulers
-- ✅ Training Pipeline
-- ✅ Full Image-to-Video generation pipeline
-
-By the end of the series, we’ll connect all the pieces together into a simplified but functional I2V architecture 
-
+> The series is published as a dedicated website with structured lessons, explanations, and code walkthroughs:
+> **[shubham2376g.github.io/NanoI2V](https://shubham2376g.github.io/NanoI2V)**
+>
+> Each topic is a self-contained lesson - read in order or jump to what you need.
 
 ---
 
-# ⭐ Support the Project
+## What This Series Covers
 
-If you find this series useful:
+This series explores the core building blocks behind modern image-to-video (I2V) models, including topics such as:
 
-- Star the repository ⭐
-- Follow the updates on LinkedIn 
-- Share it with others interested in diffusion/video models
+| Area | Topics |
+|---|---|
+| VAE | Causal 3D convolutions, residual blocks, video encoders & decoders |
+| DiT | Rotary positional embeddings (RoPE), attention mechanisms, adaptive LayerNorm |
+| Flow & Diffusion | Flow matching, schedulers, denoising concepts |
+| Conditioning | Text conditioning, image conditioning, multimodal embeddings |
+| Training | End-to-end training pipeline, optimization, inference |
 
-Your support helps the project reach more builders and researchers.
-
-
-
----
-
-# Prerequisites
-
-A basic understanding of the following topics will help:
-
-- Transformers
-- Attention mechanisms
-- LLM fundamentals
-- PyTorch basics
-- Diffusion model intuition (helpful but not mandatory)
-
-If you've previously worked with LLMs, many concepts here will feel surprisingly familiar
-
+Additional topics and modules will be added as the series evolves.
 
 ---
 
-# 📂 Repository Structure
+## Repository Structure
 
 ```text
-wan_i2v/
+NanoI2V/
 ├── vae/
-│   ├── conv.py
-│   ├── blocks.py
+│   ├── conv.py          # CausalConv3d
+│   ├── blocks.py        # 3D ResBlocks
 │   ├── encoder.py
 │   ├── decoder.py
 │   └── vae.py
 │
 ├── dit/
-│   ├── rope.py
-│   ├── attention.py
-│   ├── blocks.py
+│   ├── rope.py          # 3D RoPE
+│   ├── attention.py     # Self & Cross Attention
+│   ├── blocks.py        # DiT blocks with adaLN
 │   └── dit.py
 │
 ├── flow/
-│   └── scheduler.py
+│   └── scheduler.py     # Flow matching scheduler
 │
 ├── conditioning/
-│   └── encoders.py
+│   └── encoders.py      # Text & image encoders
 │
-├── notebooks/
-│   ├── 01_causal_conv3d.ipynb
-│   ├── 02_resblock3d.ipynb
-│   ├── 03_video_vae.ipynb
-│   └── ...
+├── docs/
+│   └── index.html       # Series website (GitHub Pages)
 │
 └── train.py
 ```
 
 ---
 
-# 📓 Notebooks
+## Prerequisites
 
-The `notebooks/` folder will contain detailed deep dives for every concept covered in the series.
+A basic understanding of the following will help:
 
-Each notebook will include:
+- PyTorch basics
+- Transformer architecture and attention mechanisms
+- LLM fundamentals
+- Diffusion model intuition (helpful but not required)
 
-- Intuition behind the concept
-- Mathematical explanation
-- PyTorch implementation
-- Visualizations
-- Links to related papers(if any)
+If you've worked with LLMs before, many concepts here will feel familiar.
 
-The goal is to make this repository both:
-- a learning resource 
-- and a practical implementation guide 
 ---
 
+## ⭐ Support the Project
 
-# 🔗 Follow the Series
+If you find this useful:
+- Star the repository ⭐
+- Share it with others interested in diffusion or video models
 
-You can follow the series here:
-<br>
-
-<p align="left">
+<p>
   <a href="https://www.linkedin.com/in/shubham-aggarwal-a63b40276">
-    <img src="https://img.shields.io/badge/Follow%20the%20Series%20on-LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white" />
+    <img src="https://img.shields.io/badge/Follow%20on-LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white" />
   </a>
 </p>
-
-
-
----
-
