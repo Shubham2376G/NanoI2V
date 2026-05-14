@@ -1299,6 +1299,234 @@ Mirrors TemporalDownsample logic.
   </ul>
      `
   },
+  {
+    title: "SpatialAttention",
+    tag: "VAE",
+    subtitle: "",
+    body: `
+<p>
+  Ok, so ResBlocks are great for learning local patterns, but they are still local. 
+  A <code>3×3×3</code> kernel only sees a small neighborhood at a time, and it is not enough when the model needs to understand how one part of the image relates to another part far away. So it's time to make the attention block for them.
+</p>
+
+<p>
+  And as we know, attention is computationally expensive, we will use the tools we learned in the last lesson, i.e., downsampling. We use a couple of these to reduce our image to something like <code>4×4</code> or <code>8×8</code>.
+  At this scale, every position is cheap to compare with every other position, which makes attention a very attractive choice.
+</p>
+
+<div class="callout">
+  <strong>Note:</strong> If you think 4×4 is way too small and that all the spatial information is already lost, don't worry. When we reduce the H and W, we are also increasing the channels of the images, so the net spatial information remains conserved.
+</div>
+
+<p>
+  This is why attention is usually inserted only at the bottleneck (lowest position).
+  It is the cheapest place to use it.
+  At full resolution, the number of spatial tokens would be huge, and the attention matrix would explode in cost.
+</p>
+
+<h2>A little mathematical proof</h2>
+
+<p>
+  Suppose the bottleneck feature map is <code>4×4</code>.
+  That means we only have <code>16</code> spatial tokens per frame.
+  The attention matrix is then only <code>16×16</code>, which is tiny.
+</p>
+
+<p>
+  But if we tried to do the same thing at <code>64×64</code> resolution, we would have <code>4096</code> tokens per frame.
+  The attention matrix would become <code>4096×4096</code>, which is far too expensive in memory and compute.
+</p>
+
+
+
+<h2>What about Temporal Attention?</h2>
+
+<p>
+  The VAE is not the part that takes care of temporal attention; the Diffusion Transformer does, and it will come at a later stage.
+  The VAE's job is to compress and reconstruct the video efficiently while preserving enough information to decode it back later.
+</p>
+
+<p>
+  Now, to focus only on the spatial side, we reshape the tensor from <code>(B, C, T, H, W)</code> to <code>(B×T, C, H×W)</code>.
+  This turns the problem into <code>B×T</code> separate spatial attention problems. It's like treating each video in batch <code>B</code> and each frame <code>T</code> in every video as the new batch. I hope you were able to understand it.
+</p>
+
+<h2>Why Not use Temporal Attention here?</h2>
+
+<p>
+  Because temporal attention is much more expensive.
+</p>
+
+<p>
+  Let:
+</p>
+
+<pre>frames = T
+spatial tokens per frame = H×W</pre>
+
+<p>
+  Then:
+</p>
+
+<pre>Spatial-only attention per frame: (H×W)²
+Total cost over all frames:       T(H×W)²</pre>
+
+<p>
+  But full spatiotemporal attention would operate on all video tokens at once:
+</p>
+
+<pre>Full video attention cost: (T×H×W)²</pre>
+
+<p>
+  That grows very quickly.
+  The VAE does not need to solve the full motion problem anyway.
+  That is the job of the Diffusion Transformer (DiT).
+</p>
+
+<div class="concept-row">
+  <div class="concept-card">
+    <div class="concept-card-title">VAE</div>
+    <div class="concept-card-body">
+      Compression and reconstruction
+    </div>
+  </div>
+  <div class="concept-card">
+    <div class="concept-card-title">Diffusion Transformer</div>
+    <div class="concept-card-body">
+      Motion semantics and global temporal attention
+    </div>
+  </div>
+</div>
+
+<h2>Wait, Isn't our CausalConv3D a temporal attention block?</h2>
+
+<p>
+  No, it's not. We generally have a kernel size of 3×3×3, so temporally it only sees local frames, not the complete video.
+</p>
+
+<p>
+  But wait, you said we stack multiple of these layers, so shouldn't it be able to see far-away frames too?
+</p>
+
+<p>
+  In that case, information flows like:
+</p>
+
+<p>
+  1→3→5→7→⋯→20
+</p>
+
+<p>
+  i.e., the "summary" of frames 1 to 19 attends to frame 20, so there is indirect attention.
+  What an ideal attention block does is let frame 1 directly attend to frame 20.
+</p>
+
+
+<h2>How the Tensor Flows Through Attention</h2>
+
+<pre>
+Input x: (B=2, C=128, T=8, H=4, W=4)
+
+1. Norm:
+   GroupNorm over channels → same shape
+
+2. Reshape for attention:
+   permute (0,2,1,3,4) → (B, T, C, H, W) = (2, 8, 128, 4, 4)
+   reshape  (B*T, C, H*W)               = (16, 128, 16)
+
+   Now we have 16 separate feature maps,
+   each with 16 spatial tokens of dim 128.
+
+3. to_qkv Conv1d(128, 384, k=1):
+   → (16, 384, 16)
+   chunk into Q, K, V each (16, 128, 16)
+
+4. Q·Kᵀ attention:
+   Q permuted: (16, 16, 128)
+   K:          (16, 128, 16)
+   bmm →       (16, 16, 16)
+
+   This is the spatial attention matrix.
+
+5. attn·V:
+   attn:       (16, 16, 16)
+   V permuted: (16, 16, 128)
+   bmm →       (16, 16, 128)
+
+6. proj_out Conv1d:
+   → (16, 128, 16)
+
+7. Reshape back:
+   (B, T, C, H, W) = (2, 8, 128, 4, 4)
+   permute → (B, C, T, H, W) = (2, 128, 8, 4, 4)
+
+8. Add residual:
+   output = attention(x) + x
+</pre>
+
+<p>
+  One small detail worth noticing: we use <code>Conv1d</code> with <code>kernel_size=1</code> for the Q, K, and V projections.
+  This is mathematically the same as a linear layer applied independently at each token.
+  We use convolution because the tensor is already arranged as <code>(BT, C, HW)</code>. The conv layer directly takes this format; if we were to use a linear layer, we would first have to rearrange the tensor before applying the linear layer.
+</p>
+
+<h2>Implementation</h2>
+
+<span class="code-label">vae/attention.py</span>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">SpatialAttention</span>(nn.Module):
+    <span class="c-str">"""
+    Single-head self-attention over spatial tokens at each timestep.
+
+    Used only in the VAE bottleneck (middle block) — not in the DiT.
+
+    This gives the VAE global spatial context at the lowest resolution.
+
+    For each frame independently:
+        (B, C, T, H, W) → flatten H*W → attention → unflatten
+    """</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, channels: int, num_groups: int = <span class="c-num">32</span>):
+        <span class="c-fn">super</span>().__init__()
+        self.norm = get_norm(channels, num_groups)
+        self.to_qkv = nn.Conv1d(channels, channels * <span class="c-num">3</span>, kernel_size=<span class="c-num">1</span>, bias=<span class="c-kw">False</span>)
+        self.proj_out = nn.Conv1d(channels, channels, kernel_size=<span class="c-num">1</span>)
+        self.scale = channels ** -<span class="c-num">0.5</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x: torch.Tensor) -> torch.Tensor:
+        B, C, T, H, W = x.shape
+        residual = x
+
+        x = self.norm(x)
+
+        <span class="c-cm"># Process each timestep independently as a spatial attention problem.</span>
+        x = x.permute(<span class="c-num">0</span>, <span class="c-num">2</span>, <span class="c-num">1</span>, <span class="c-num">3</span>, <span class="c-num">4</span>).reshape(B * T, C, H * W)  <span class="c-cm"># (BT, C, HW)</span>
+
+        qkv = self.to_qkv(x)  <span class="c-cm"># (BT, 3C, HW)</span>
+        q, k, v = qkv.chunk(<span class="c-num">3</span>, dim=<span class="c-num">1</span>)  <span class="c-cm"># each: (BT, C, HW)</span>
+
+        <span class="c-cm"># Attention: (BT, HW, C) × (BT, C, HW) → (BT, HW, HW)</span>
+        attn = torch.bmm(q.permute(<span class="c-num">0</span>, <span class="c-num">2</span>, <span class="c-num">1</span>), k) * self.scale
+        attn = attn.softmax(dim=-<span class="c-num">1</span>)
+
+        out = torch.bmm(attn, v.permute(<span class="c-num">0</span>, <span class="c-num">2</span>, <span class="c-num">1</span>))  <span class="c-cm"># (BT, HW, C)</span>
+        out = out.permute(<span class="c-num">0</span>, <span class="c-num">2</span>, <span class="c-num">1</span>)  <span class="c-cm"># (BT, C, HW)</span>
+        out = self.proj_out(out)
+
+        out = out.reshape(B, T, C, H, W).permute(<span class="c-num">0</span>, <span class="c-num">2</span>, <span class="c-num">1</span>, <span class="c-num">3</span>, <span class="c-num">4</span>)
+        <span class="c-kw">return</span> out + residual</pre>
+
+<h2>Key Takeaways</h2>
+
+<ul>
+  <li>ResBlocks learn local structure, but attention can connect distant spatial regions.</li>
+  <li>We place attention at the VAE bottleneck because the resolution is small and the cost is cheap.</li>
+  <li>The attention is spatial-only, not spatiotemporal, because the VAE is for compression and reconstruction.</li>
+  <li>Temporal attention is handled by Diffusion Transformers.</li>
+  <li>The reshape from <code>(B, C, T, H, W)</code> to <code>(B×T, C, H×W)</code> is what makes each frame an independent spatial attention problem.</li>
+</ul>
+`
+  },
 ];
 
 let current = 0;
