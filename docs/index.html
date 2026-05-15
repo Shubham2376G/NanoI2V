@@ -1527,6 +1527,524 @@ Input x: (B=2, C=128, T=8, H=4, W=4)
 </ul>
 `
   },
+  {
+    title: "VAE Encoder",
+    tag: "VAE",
+    subtitle: "Compressing raw video into a compact latent representation.",
+    body: `
+<p>
+  Now it is finally time to assemble everything we have built so far into the full <strong>VAE Encoder</strong>.
+</p>
+
+<p>
+  Till now we learned:
+</p>
+
+<ul>
+  <li>CausalConv3D → prevents future frame leakage</li>
+  <li>ResBlock3D → extracts spatial + temporal features</li>
+  <li>Downsampling → compresses the video efficiently</li>
+  <li>Spatial Attention → gives global spatial understanding</li>
+</ul>
+
+<p>
+  The encoder combines all of these together into one pipeline whose job is:
+</p>
+
+<samp class="nota">High-resolution video → compact latent representation</samp>
+
+
+<h2>What Does the Encoder Actually Do?</h2>
+
+<p>
+  The encoder is basically a giant compression block.
+  It takes the original video tensor:
+</p>
+
+<pre>(B, C, T, H, W)</pre>
+
+<p>
+  and gradually compresses it into something much smaller:
+</p>
+
+<pre>(B, C', T', H', W')</pre>
+
+<p>
+  while preserving information
+</p>
+
+<div class="callout">
+  <strong>Important:</strong> Don't confuse a VAE encoder with a Transformer/GPT encoder.
+</div>
+
+<p>
+  Their jobs are completely different.
+</p>
+
+<div class="concept-row">
+
+  <div class="concept-card">
+    <div class="concept-card-title">Transformer Encoder</div>
+    <div class="concept-card-body">
+      Converts tokens into richer semantic vector representations.
+    </div>
+  </div>
+
+  <div class="concept-card">
+    <div class="concept-card-title">VAE Encoder</div>
+    <div class="concept-card-body">
+      Compresses massive spatial + temporal information into a tiny latent space.
+    </div>
+  </div>
+
+</div>
+
+
+<h2>Encoder Architecture</h2>
+
+<p>
+  First, let's look at the full architecture before breaking it down piece by piece.
+</p>
+
+
+    <div class="hero-image">
+    <img 
+        src="images/vae_encoder2.png" 
+        alt="Vae Encoder"
+    />
+    <p class="caption">
+        Vae Encoder Architecture
+    </p>
+    </div>
+
+<p>
+  Now let us understand what is happening step by step
+</p>
+
+
+<h2>Step 1 Input Projection</h2>
+
+<p>
+  The raw input video arrives as:
+</p>
+
+<pre>(B, 3, T, H, W)</pre>
+
+<p>
+  where:
+</p>
+
+<ul>
+  <li><code>B</code> = batch size</li>
+  <li><code>3</code> = RGB channels</li>
+  <li><code>T</code> = number of frames</li>
+  <li><code>H, W</code> = resolution</li>
+</ul>
+
+<p>
+  Pixel values are first normalized from:
+</p>
+
+<pre>[0, 255] → [-1, 1]</pre>
+
+<p>
+  because neural networks train much more stably around smaller centered ranges.
+</p>
+
+<p>
+  Then we pass the video through an initial <code>CausalConv3D</code>:
+</p>
+
+<pre>
+(B, 3, T, H, W)
+        ↓
+(B, 128, T, H, W)
+</pre>
+
+<p>
+  Notice:
+</p>
+
+<ul>
+  <li>Temporal + spatial dimensions stay unchanged</li>
+  <li>Channel dimension increases significantly</li>
+</ul>
+
+<p>
+  Why increase channels this much?
+</p>
+
+<p>
+  Because Your input video frame has only:
+
+3 channels = RGB
+each channel(or more specifically feature) contains information about raw pixel intensities, this infrmation is not at all enough for deep video reasoning. We need features like edges
+textures
+motion boundaries
+lighting gradients
+object parts
+temporal motion cues
+semantic structures
+
+but With only 3 channels, the model can only store RGB values.
+
+so a rough mind map would look like
+pixel = [R, G, B]
+after projection you get something like:
+pixel = [
+  edge_strength,
+  motion_signal,
+  skin_texture,
+  shadow_pattern,
+  temporal_change,
+  ...
+  128 learned features
+]
+</p>
+
+
+<h2>Step 2 ResBlocks to Extract Information Before Compression</h2>
+
+<p>
+  After the input projection, we enter the stage 0 of ResBlock3D processing.
+</p>
+
+<pre>
+x → ResBlock3D → ResBlock3D
+</pre>
+
+
+<p>
+  Think of it like, the encoder must first understand the video before compressing it.
+</p>
+
+<div class="callout">
+  <strong>Key idea:</strong> summarize first, compress later.
+</div>
+
+<p>
+  If we downsample it first, we destroy information before the encoder has had a chance to learn what is important.
+</p>
+
+<p>
+  The ResBlocks move information from:
+</p>
+
+<pre>
+(H, W, T) → channels
+</pre>
+
+
+<h2>Step 3 Spatial Downsampling</h2>
+
+<p>
+  Once the network has extracted useful features, we can safely compress spatial resolution.
+</p>
+
+<pre>
+(H, W) → (H/2, W/2)
+</pre>
+
+<p>
+  using our SpatialDownsample class with:
+</p>
+
+<pre>stride = (1, 2, 2)</pre>
+
+<p>
+  Example:
+</p>
+
+<pre>
+(B, 128, 8, 256, 256)
+            ↓
+(B, 128, 8, 128, 128)
+</pre>
+
+<p>
+  Temporal length stays identical.
+</p>
+
+<h2>Why Spatial Downsampling Before Temporal Downsampling?</h2>
+
+<pre>
+✓ SpatialDown → TemporalDown
+✗ TemporalDown → SpatialDown
+</pre>
+
+<p>
+  This is actually a very intutive reason behind it.
+</p>
+
+<p>
+  If you take a video, it contain huge spatial redundancy, meanining the neighboring pixels are usually very similar, but the temporal redundancy is lower because objects move between frames.
+</p>
+
+<p>
+  So we compress space first. Other reason is simple; because after this step, temporal operations become computationally cheaper </p>
+
+<h2>Step 4 Temporal Downsampling</h2>
+
+<p>
+  After spatial compression, we compress the temporal dimension:
+</p>
+
+<pre>T → T/2</pre>
+
+<p>
+  using our TemporalDownsample class with:
+</p>
+
+<pre>stride = (2, 1, 1)</pre>
+
+<p>
+  But remember:
+</p>
+
+<div class="callout">
+  <strong>Important:</strong> we preserve frame 0 exactly.
+</div>
+
+<p>
+  So the pipeline becomes:
+</p>
+
+<pre>
+[frame₀] + compress(frame₁ → frameₙ)
+</pre>
+
+<p>
+  If the first frame changes too much during compression:
+</p>
+
+<ul>
+  <li>the generated video may drift</li>
+  <li>character identity in that image may change</li>
+</ul>
+
+<h2>Step 5 Repeat</h2>
+
+<p>
+  We continue to do the same process until we reach the spatial resolution small enough to be processed by our spatialattention class computationally cheap without much performance loss
+</p>
+
+
+
+<div class="callout">
+  <strong>Note:</strong> Our channel dimension are keep on increasing 128 → 256 → 512 to preserve information during compression
+</div>
+
+<div class="callout">
+  <strong>Note:</strong> In stage 2, we don't do downsampling because this is the bottleneck resolution itself.
+</div>
+
+<h2>Step 6 Bottleneck Part</h2>
+
+<p>
+  Eventually we compress the video enough that spatial attention becomes affordable.
+</p>
+
+<p>
+  So for example we went from
+</p>
+
+<pre>
+128×128 → 16384 tokens
+Attention matrix → 16384²
+</pre>
+
+
+<p>
+  to
+</p>
+
+<pre>
+8×8 → 64 tokens
+Attention matrix → 64²
+</pre>
+
+
+<p>
+  So at the bottleneck we insert:
+</p>
+
+<pre>
+ResBlock → SpatialAttention → ResBlock
+</pre>
+
+<p>
+  This gives the VAE global spatial understanding.
+</p>
+
+
+<h2>Step 7 — Output Projection</h2>
+
+<p>
+  Finally we apply a output projection layer:
+</p>
+
+<pre>
+GroupNorm → SiLU → 1×1×1 Conv
+</pre>
+
+<p>
+  to project the bottleneck features into:
+</p>
+
+<pre>
+2 × latent_channels
+</pre>
+
+<p>
+  Now, what's this latent channels and why 2x ?
+</p>
+
+<p>
+  I will have to ask you to wait, you will be able to properly understand it once we code the complete VAE model
+</p>
+
+
+<h2>Implementation</h2>
+
+<span class="code-label">vae/encoder.py</span>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">Encoder3D</span>(nn.Module):
+    <span class="c-str">"""
+    Causal 3D VAE encoder.
+
+    Takes raw video:  (B, in_channels, T, H, W)
+    Returns:          (B, 2*latent_channels, T', H', W')
+
+
+    Compression schedule (default):
+        Spatial:  2× down × 2 stages  →  H/4, W/4
+        Temporal: 2× down × 2 stages  →  (T-1)/4 + 1  (first frame kept)
+
+    Channel scheduler with ch_mult=(1,2,4):
+        base_channels=128
+        stage 0: 128 channels
+        stage 1: 256 channels
+        stage 2: 512 channels  ← bottleneck enters here
+    """</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(
+        self,
+        in_channels: int = <span class="c-num">3</span>,               <span class="c-cm"># RGB input</span>
+        base_channels: int = <span class="c-num">128</span>,           <span class="c-cm"># channels at first stage</span>
+        latent_channels: int = <span class="c-num">16</span>,          <span class="c-cm"># VAE latent dim (C')</span>
+        ch_mult: tuple = (<span class="c-num">1</span>, <span class="c-num">2</span>, <span class="c-num">4</span>),         <span class="c-cm"># channel multiplier per stage</span>
+        num_res_blocks: int = <span class="c-num">2</span>,            <span class="c-cm"># ResBlocks per stage</span>
+        spatial_ds: int = <span class="c-num">2</span>,               <span class="c-cm"># how many spatial downsamples</span>
+        temporal_ds: int = <span class="c-num">2</span>,              <span class="c-cm"># how many temporal downsamples</span>
+        num_groups: int = <span class="c-num">32</span>,
+    ):
+        <span class="c-fn">super</span>().__init__()
+
+        self.ch_mult = ch_mult
+        self.spatial_ds = spatial_ds
+        self.temporal_ds = temporal_ds
+
+        <span class="c-cm"># ── Stage channel sizes ───────────────────────────────────────</span>
+        <span class="c-cm"># stage_channels[i] = base_channels * ch_mult[i]</span>
+        stage_channels = [base_channels * m <span class="c-kw">for</span> m <span class="c-kw">in</span> ch_mult]
+        <span class="c-cm"># [128, 256, 512] for ch_mult=(1,2,4)</span>
+
+        <span class="c-cm"># ── Input projection ─────────────────────────────────────────</span>
+        <span class="c-cm"># Map RGB (3) → base_channels</span>
+        self.in_conv = CausalConv3d(in_channels, stage_channels[<span class="c-num">0</span>], kernel_size=<span class="c-num">3</span>)
+
+        <span class="c-cm"># ── Downsampling stages ───────────────────────────────────────</span>
+        <span class="c-cm"># Each stage: N ResBlocks + spatial/temporal downsample</span>
+        self.stages = nn.ModuleList()
+
+        in_ch = stage_channels[<span class="c-num">0</span>]
+        <span class="c-kw">for</span> i, out_ch <span class="c-kw">in</span> enumerate(stage_channels):
+            stage = nn.ModuleList()
+
+            <span class="c-cm"># ResBlocks (first one handles channel change)</span>
+            <span class="c-kw">for</span> j <span class="c-kw">in</span> range(num_res_blocks):
+                block_in_ch = in_ch <span class="c-kw">if</span> j == <span class="c-num">0</span> <span class="c-kw">else</span> out_ch
+                stage.append(ResBlock3D(block_in_ch, out_ch, num_groups))
+            in_ch = out_ch
+
+            <span class="c-cm"># We downsample after all stages except the last</span>
+            ds_block = nn.ModuleDict()
+
+            <span class="c-kw">if</span> i &lt; spatial_ds:
+                ds_block[<span class="c-str">"spatial"</span>] = SpatialDownsample(out_ch, out_ch)
+
+            <span class="c-kw">if</span> i &lt; temporal_ds:
+                ds_block[<span class="c-str">"temporal"</span>] = TemporalDownsample(out_ch, out_ch, keep_first=<span class="c-kw">True</span>)
+
+            self.stages.append(nn.ModuleList([stage, nn.ModuleDict(ds_block)]))
+
+        <span class="c-cm"># ── Middle / bottleneck block ─────────────────────────────────</span>
+        <span class="c-cm"># ResBlock → SpatialAttention → ResBlock</span>
+        <span class="c-cm"># This is where the global spatial context is captured</span>
+        bottleneck_ch = stage_channels[-<span class="c-num">1</span>]
+        self.mid_block1   = ResBlock3D(bottleneck_ch, bottleneck_ch, num_groups)
+        self.mid_attn     = SpatialAttention(bottleneck_ch, num_groups)
+        self.mid_block2   = ResBlock3D(bottleneck_ch, bottleneck_ch, num_groups)
+
+        <span class="c-cm"># ── Output projection ─────────────────────────────────────────</span>
+        <span class="c-cm"># Norm → SiLU → Conv → 2 * latent_channels</span>
+        self.out_norm = get_norm(bottleneck_ch, num_groups)
+        self.out_act  = nn.SiLU()
+        self.out_conv = CausalConv3d_1x1(bottleneck_ch, <span class="c-num">2</span> * latent_channels)
+
+    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x: torch.Tensor) -> torch.Tensor:
+        <span class="c-str">"""
+        Args:
+            x: (B, 3, T, H, W)  raw video in [-1, 1]
+
+        Returns:
+            (B, 2*latent_channels, T', H', W')
+            First  latent_channels → mean
+            Second latent_channels → log_variance
+        """</span>
+
+        <span class="c-cm"># Input projection</span>
+        x = self.in_conv(x)
+
+        <span class="c-cm"># Downsampling stages</span>
+        <span class="c-kw">for</span> stage_resblocks, ds_ops <span class="c-kw">in</span> self.stages:
+
+            <span class="c-cm"># ResBlocks</span>
+            <span class="c-kw">for</span> resblock <span class="c-kw">in</span> stage_resblocks:
+                x = resblock(x)
+
+            <span class="c-cm"># Spatial downsample first, then temporal</span>
+            <span class="c-cm"># Order matters: spatial changes H,W; temporal changes T</span>
+            <span class="c-kw">if</span> <span class="c-str">"spatial"</span> <span class="c-kw">in</span> ds_ops:
+                x = ds_ops[<span class="c-str">"spatial"</span>](x)
+
+            <span class="c-kw">if</span> <span class="c-str">"temporal"</span> <span class="c-kw">in</span> ds_ops:
+                x = ds_ops[<span class="c-str">"temporal"</span>](x)
+
+        <span class="c-cm"># Bottleneck</span>
+        x = self.mid_block1(x)
+        x = self.mid_attn(x)
+        x = self.mid_block2(x)
+
+        <span class="c-cm"># Output projection → mean + logvar</span>
+        x = self.out_act(self.out_norm(x))
+        x = self.out_conv(x)
+
+        <span class="c-kw">return</span> x   <span class="c-cm"># (B, 2*latent_channels, T', H', W')</span></pre>
+
+
+<h2>Key Takeaways</h2>
+
+<ul>
+  <li>The encoder gradually compresses raw video into a compact latent representation</li>
+  <li>ResBlocks extract useful spatial and temporal features before compression happens</li>
+  <li>Spatial compression happens before temporal compression because spatial redundancy is higher</li>
+  <li>Channels increase as resolution decreases to preserve information capacity</li>
+  <li>Attention is placed only at the bottleneck because full-resolution attention is too expensive</li>
+</ul>
+`
+}
+
 ];
 
 let current = 0;
