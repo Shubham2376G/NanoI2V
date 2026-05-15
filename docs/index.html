@@ -865,9 +865,15 @@ W = (32 - 5) + 1 = 28    <span class="c-cm">→ 4×28×28</span></pre>
 
       <h2>Architecture</h2>
       <p>Now let’s first look at the structure of the block so you can better visualize how the input flows through it:</p>
-      <pre>x → GroupNorm → SiLU → CausalConv3D(3×3×3)
-  → GroupNorm → SiLU → CausalConv3D(3×3×3)
-  → + skip(x)</pre>
+          <div class="hero-image">
+    <img 
+        src="images/resblock.png" 
+        alt="Resblock3d"
+    />
+    <p class="caption">
+        ResBlock3d Architecture
+    </p>
+    </div>
 
       <h3>Spatial Understanding</h3>
       <p>Spatially, CausalConv3D behaves like a standard convolution. Early layers learn low-level patterns - edges, corners, gradients. Deeper layers learn shapes, objects, and scene layouts. This is very similar to how standard CNNs process images.</p>
@@ -1673,24 +1679,46 @@ Input x: (B=2, C=128, T=8, H=4, W=4)
 <p>
   Why increase channels this much?
 </p>
+<p>
+  Because your input video frame has only:
+</p>
+
+<ul>
+  <li>3 channels = RGB</li>
+  <li>each channel (or more specifically feature) contains information about raw pixel intensities</li>
+</ul>
 
 <p>
-  Because Your input video frame has only:
+  this information is not at all enough for deep video reasoning.
+</p>
 
-3 channels = RGB
-each channel(or more specifically feature) contains information about raw pixel intensities, this infrmation is not at all enough for deep video reasoning. We need features like edges
-textures
-motion boundaries
-lighting gradients
-object parts
-temporal motion cues
-semantic structures
+<p>
+  We need features like:
+</p>
 
-but With only 3 channels, the model can only store RGB values.
+<ul>
+  <li>edges</li>
+  <li>textures</li>
+  <li>motion boundaries</li>
+  <li>lighting gradients</li>
+  <li>object parts</li>
+  <li>temporal motion cues</li>
+  <li>semantic structures</li>
+</ul>
 
-so a rough mind map would look like
+<p>
+  but with only 3 channels, the model can only store RGB values.
+</p>
+
+<p>
+  so a rough mind map would look like:
+</p>
+
+<pre>
 pixel = [R, G, B]
+
 after projection you get something like:
+
 pixel = [
   edge_strength,
   motion_signal,
@@ -1700,8 +1728,7 @@ pixel = [
   ...
   128 learned features
 ]
-</p>
-
+</pre>
 
 <h2>Step 2 ResBlocks to Extract Information Before Compression</h2>
 
@@ -1731,7 +1758,7 @@ x → ResBlock3D → ResBlock3D
 </p>
 
 <pre>
-(H, W, T) → channels
+(H, W, T) → feature channels
 </pre>
 
 
@@ -1781,7 +1808,7 @@ x → ResBlock3D → ResBlock3D
 </p>
 
 <p>
-  So we compress space first. Other reason is simple; because after this step, temporal operations become computationally cheaper </p>
+  So we compress space first. Other reason is simple; because after this step, temporal operations become computationally cheaper too. </p>
 
 <h2>Step 4 Temporal Downsampling</h2>
 
@@ -1825,13 +1852,13 @@ x → ResBlock3D → ResBlock3D
 <h2>Step 5 Repeat</h2>
 
 <p>
-  We continue to do the same process until we reach the spatial resolution small enough to be processed by our spatialattention class computationally cheap without much performance loss
+  We continue to do the same process until we reach the spatial resolution small enough to be processed by our spatialattention class computationally cheaply without much performance loss.
 </p>
 
 
 
 <div class="callout">
-  <strong>Note:</strong> Our channel dimension are keep on increasing 128 → 256 → 512 to preserve information during compression
+  <strong>Note:</strong> Our channel dimension are keep on increasing 128 → 256 → 512 to preserve information during compression.
 </div>
 
 <div class="callout">
@@ -1845,7 +1872,7 @@ x → ResBlock3D → ResBlock3D
 </p>
 
 <p>
-  So for example we went from
+  So, for example we went from
 </p>
 
 <pre>
@@ -1877,7 +1904,7 @@ ResBlock → SpatialAttention → ResBlock
 </p>
 
 
-<h2>Step 7 — Output Projection</h2>
+<h2>Step 7 Output Projection</h2>
 
 <p>
   Finally we apply a output projection layer:
@@ -1900,7 +1927,7 @@ GroupNorm → SiLU → 1×1×1 Conv
 </p>
 
 <p>
-  I will have to ask you to wait, you will be able to properly understand it once we code the complete VAE model
+  I will have to ask you to wait, you will be able to properly understand it once we code the complete VAE model.
 </p>
 
 
