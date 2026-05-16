@@ -1,4 +1,4 @@
-# NanoI2V — Building an Image-to-Video Model from Scratch
+# NanoI2V: Building an Image-to-Video Model from Scratch
 
 Over the past few months, I moved from coding LLMs to working on diffusion-based video generation models, inspired by architectures like WAN, CogVideoX, and modern open-source video systems.
 
