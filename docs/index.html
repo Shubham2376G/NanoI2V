@@ -2070,8 +2070,268 @@ GroupNorm → SiLU → 1×1×1 Conv
   <li>Attention is placed only at the bottleneck because full-resolution attention is too expensive</li>
 </ul>
 `
-}
+},
+  {
+    title: "VAE Decoder",
+    tag: "VAE",
+    subtitle: "Reconstructing raw video back from the latent representation.",
+    body: `
+      <p>
+  Now it is time to build the <strong>VAE Decoder</strong>.
+  This block is basically the encoder in reverse.
+</p>
 
+<p>
+  There are three important things to keep in mind here:
+</p>
+
+<ul>
+  <li>the channel schedule runs <strong>backwards</strong> i.e high channels → low channels</li>
+  <li>the upsample order is <strong>temporal first, then spatial</strong> (reverse of the encoder)</li>
+  <li>the input is the <strong>latent</strong>, and the output is <strong>raw video</strong> </li>
+</ul>
+
+<h2>What Does the Decoder Actually Do?</h2>
+
+<p>
+  The decoder is a reconstruction block.
+  It takes the latent sample produced by the encoder:
+</p>
+
+<pre>(B, latent_channels, T', H', W')</pre>
+
+<p>
+  and gradually expands it back into:
+</p>
+
+<pre>(B, 3, T, H, W)</pre>
+
+<p>
+  where the last dimension is the reconstructed RGB video.
+</p>
+
+<div class="callout">
+  <strong>Summary:</strong> The encoder compresses information into a latent space.
+  The decoder learns how to turn that latent back into a valid video frame sequence.
+</div>
+
+
+
+<h2>Decoder Architecture</h2>
+
+<div class="hero-image">
+    <img 
+        src="images/decoder1.png" 
+        alt="Vae Decoder"
+    />
+    <p class="caption">
+        Vae Decoder Architecture
+    </p>
+    </div>
+
+
+<h2>The Role of Spatial Attention Here</h2>
+
+<p>
+  We also keep the spatial attention block in the decoder bottleneck.
+  That is because the decoder still needs a global understanding of spatial structure
+  before it starts expanding the feature map back to full resolution.
+</p>
+
+<p>
+  At the bottleneck, attention is still cheap.
+  And just like in the encoder, this is the best place to use it.
+</p>
+
+
+
+<h2>Why We Use <code>tanh</code> at the Output?</h2>
+
+
+<p>
+  Videos are normalized to the range:
+</p>
+
+<pre>[0, 255] → [-1, 1]</pre>
+
+<p>
+  before training.
+  So the decoder should also output values in the same range.
+</p>
+
+<p>
+  That is why we use <code>torch.tanh</code> at the end.
+  It hard-constrains the reconstructed video to stay inside <code>[-1, 1]</code>.
+</p>
+
+<p>
+  Without this, the network could output anything.
+  The loss would try to pull it back, but nothing would stop the decoder from producing values like <code>3.7</code> or <code>-12</code>.
+</p>
+
+
+<h2>Implementation</h2>
+
+<span class="code-label">vae/decoder.py</span>
+
+<pre><span class="c-kw">import</span> torch
+<span class="c-kw">import</span> torch.nn <span class="c-kw">as</span> nn
+
+<span class="c-kw">from</span> vae.conv <span class="c-kw">import</span> CausalConv3d, CausalConv3d_1x1
+<span class="c-kw">from</span> vae.blocks <span class="c-kw">import</span> (
+    ResBlock3D,
+    SpatialUpsample,
+    TemporalUpsample,
+    SpatialAttention,
+    get_norm,
+)
+
+
+<span class="c-kw">class</span> <span class="c-fn">Decoder3D</span>(nn.Module):
+    <span class="c-str">"""
+    Causal 3D VAE decoder.
+
+    Takes sampled latent:  (B, latent_channels, T', H', W')
+    Returns reconstructed: (B, out_channels,    T,  H,  W)
+
+    Must be initialized with the same hyperparameters as Encoder3D
+    so the channel schedule and upsample stages match exactly.
+    """</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(
+        self,
+        out_channels: int = <span class="c-num">3</span>,              <span class="c-cm"># RGB output</span>
+        base_channels: int = <span class="c-num">128</span>,           <span class="c-cm"># channels at finest stage</span>
+        latent_channels: int = <span class="c-num">16</span>,          <span class="c-cm"># must match encoder</span>
+        ch_mult: tuple = (<span class="c-num">1</span>, <span class="c-num">2</span>, <span class="c-num">4</span>),         <span class="c-cm"># same as encoder</span>
+        num_res_blocks: int = <span class="c-num">2</span>,            <span class="c-cm"># same as encoder</span>
+        spatial_us: int = <span class="c-num">2</span>,               <span class="c-cm"># spatial upsamples (= encoder spatial_ds)</span>
+        temporal_us: int = <span class="c-num">2</span>,              <span class="c-cm"># temporal upsamples (= encoder temporal_ds)</span>
+        num_groups: int = <span class="c-num">32</span>,
+    ):
+        <span class="c-fn">super</span>().__init__()
+
+        self.spatial_us = spatial_us
+        self.temporal_us = temporal_us
+
+        <span class="c-cm"># Channel sizes: reversed compared to encoder</span>
+        <span class="c-cm"># encoder: [128, 256, 512]  (low → high as we go deeper)</span>
+        <span class="c-cm"># decoder: [512, 256, 128]  (high → low as we go up)</span>
+        stage_channels = [base_channels * m <span class="c-kw">for</span> m <span class="c-kw">in</span> ch_mult]  <span class="c-cm"># [128, 256, 512]</span>
+        stage_channels_rev = <span class="c-fn">list</span>(<span class="c-fn">reversed</span>(stage_channels))     <span class="c-cm"># [512, 256, 128]</span>
+
+        bottleneck_ch = stage_channels_rev[<span class="c-num">0</span>]   <span class="c-cm"># 512</span>
+
+        <span class="c-cm"># ── Input projection ──────────────────────────────────────────</span>
+        <span class="c-cm"># latent_channels → bottleneck channels</span>
+        <span class="c-cm"># 1×1×1 conv as no spatial/temporal context needed here</span>
+        self.in_conv = CausalConv3d_1x1(latent_channels, bottleneck_ch)
+
+        <span class="c-cm"># ── Bottleneck ────────────────────────────────────────────────</span>
+        <span class="c-cm"># Identical structure to encoder bottleneck</span>
+        <span class="c-cm"># ResBlock → SpatialAttention → ResBlock</span>
+        self.mid_block1 = ResBlock3D(bottleneck_ch, bottleneck_ch, num_groups)
+        self.mid_attn   = SpatialAttention(bottleneck_ch, num_groups)
+        self.mid_block2 = ResBlock3D(bottleneck_ch, bottleneck_ch, num_groups)
+
+        <span class="c-cm"># ── Upsampling stages ─────────────────────────────────────────</span>
+        <span class="c-cm"># Mirror of encoder stages but reversed</span>
+        <span class="c-cm"># stage_channels_rev: [512, 256, 128]</span>
+        <span class="c-cm">#   stage 0: 512 → 512  (no upsample — mirrors encoder stage 2)</span>
+        <span class="c-cm">#   stage 1: 512 → 256  + TemporalUp + SpatialUp</span>
+        <span class="c-cm">#   stage 2: 256 → 128  + TemporalUp + SpatialUp</span>
+        self.stages = nn.ModuleList()
+
+        in_ch = bottleneck_ch
+        num_stages = <span class="c-fn">len</span>(stage_channels_rev)
+
+        <span class="c-kw">for</span> i, out_ch <span class="c-kw">in</span> <span class="c-fn">enumerate</span>(stage_channels_rev):
+            stage = nn.ModuleList()
+
+            <span class="c-cm"># ResBlocks (first handles channel change)</span>
+            <span class="c-kw">for</span> j <span class="c-kw">in</span> <span class="c-fn">range</span>(num_res_blocks):
+                block_in_ch = in_ch <span class="c-kw">if</span> j == <span class="c-num">0</span> <span class="c-kw">else</span> out_ch
+                stage.append(ResBlock3D(block_in_ch, out_ch, num_groups))
+            in_ch = out_ch
+
+
+            <span class="c-cm"># We upsample after all stages except the first</span>
+            <span class="c-cm"># (encoder had no downsample at the last stage = deepest)</span>
+            <span class="c-cm"># so decoder has no upsample at the first stage = deepest here</span>
+            us_ops = nn.ModuleDict()
+
+            <span class="c-cm"># stage index from the END tells us how many upsamples to apply</span>
+            <span class="c-cm"># i=0 → deepest (no upsample), i=1 → 1st upsample, i=2 → 2nd</span>
+            ups_index = i
+
+            <span class="c-kw">if</span> ups_index &gt; <span class="c-num">0</span> <span class="c-kw">and</span> (ups_index - <span class="c-num">1</span>) &lt; temporal_us:
+                <span class="c-cm"># Temporal UP first (reverse of encoder: spatial down first when encoding)</span>
+                us_ops[<span class="c-str">"temporal"</span>] = TemporalUpsample(out_ch, out_ch, keep_first=<span class="c-kw">True</span>)
+
+            <span class="c-kw">if</span> ups_index &gt; <span class="c-num">0</span> <span class="c-kw">and</span> (ups_index - <span class="c-num">1</span>) &lt; spatial_us:
+                <span class="c-cm"># Spatial UP after temporal</span>
+                us_ops[<span class="c-str">"spatial"</span>] = SpatialUpsample(out_ch, out_ch)
+
+            self.stages.append(nn.ModuleList([stage, nn.ModuleDict(us_ops)]))
+
+        <span class="c-cm"># ── Output projection ─────────────────────────────────────────</span>
+        <span class="c-cm"># Norm → SiLU → Conv → out_channels (3 for RGB)</span>
+        <span class="c-cm"># tanh at the end maps output to [-1, 1] to match</span>
+        <span class="c-cm"># the normalized video input range</span>
+        self.out_norm = get_norm(stage_channels_rev[-<span class="c-num">1</span>], num_groups)
+        self.out_act  = nn.SiLU()
+        self.out_conv = CausalConv3d(stage_channels_rev[-<span class="c-num">1</span>], out_channels, kernel_size=<span class="c-num">3</span>)
+
+    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, z: torch.Tensor) -&gt; torch.Tensor:
+        <span class="c-str">"""
+        Args:
+            z: (B, latent_channels, T', H', W')  sampled latent
+
+        Returns:
+            (B, out_channels, T, H, W)  reconstructed video in [-1, 1]
+        """</span>
+        <span class="c-cm"># Input projection: latent → bottleneck channels</span>
+        x = self.in_conv(z)
+
+        <span class="c-cm"># Bottleneck</span>
+        x = self.mid_block1(x)
+        x = self.mid_attn(x)
+        x = self.mid_block2(x)
+
+        <span class="c-cm"># Upsampling stages</span>
+        <span class="c-kw">for</span> stage_resblocks, us_ops <span class="c-kw">in</span> self.stages:
+
+            <span class="c-cm"># ResBlocks first - learn features before upsampling</span>
+            <span class="c-kw">for</span> resblock <span class="c-kw">in</span> stage_resblocks:
+                x = resblock(x)
+
+            <span class="c-cm"># Temporal UP first, then spatial</span>
+            <span class="c-cm"># (reverse of encoder: spatial down first, then temporal)</span>
+            <span class="c-kw">if</span> <span class="c-str">"temporal"</span> <span class="c-kw">in</span> us_ops:
+                x = us_ops[<span class="c-str">"temporal"</span>](x)
+
+            <span class="c-kw">if</span> <span class="c-str">"spatial"</span> <span class="c-kw">in</span> us_ops:
+                x = us_ops[<span class="c-str">"spatial"</span>](x)
+
+        <span class="c-cm"># Output projection</span>
+        x = self.out_act(self.out_norm(x))
+        x = self.out_conv(x)
+
+        <span class="c-cm"># Clamp to [-1, 1], videos are normalized to this range</span>
+        <span class="c-kw">return</span> torch.tanh(x)
+</pre>
+
+<h2>Key Takeaways</h2>
+
+<ul>
+  <li>The decoder mirrors the encoder, but in reverse.</li>
+  <li>Channels go from high to low while resolution goes from small to large.</li>
+  <li>Temporal upsampling happens before spatial upsampling.</li>
+  <li>The bottleneck still uses spatial attention because it is the cheapest place to recover global structure.</li>
+  <li><code>tanh</code> at the output keeps the reconstruction inside the same normalized range as the input video.</li>
+</ul>
+    `
+  },
 ];
 
 let current = 0;
