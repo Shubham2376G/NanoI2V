@@ -363,14 +363,14 @@
       margin: 0 0 20px;
     }
 
-    /* Syntax colors — warm light bg */
+    /* Syntax colors warm light bg */
     .c-kw  { color: #1A4A7A; }
     .c-fn  { color: #2D6B48; }
     .c-str { color: #7A4820; }
     .c-cm  { color: #9A9488; font-style: italic; }
     .c-num { color: #5A3A7A; }
 
-    /* Notation — centered bare mono, no box */
+    /* Notation centered bare mono, no box */
     .nota {
       font-family: var(--mono);
       font-size: 13px;
@@ -789,7 +789,7 @@ const lessons = [
 
 
 <span class="c-kw">class</span> <span class="c-fn">CausalConv3d_1x1</span>(nn.Module):
-    <span class="c-str">"""Pointwise (1×1×1) conv — no padding needed."""</span>
+    <span class="c-str">"""Pointwise (1×1×1) conv - no padding needed."""</span>
 
     <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, in_channels: int, out_channels: int, bias: bool = <span class="c-kw">True</span>):
         <span class="c-fn">super</span>().__init__()
@@ -918,8 +918,8 @@ Now other things are there to stablity the gradient flow and it introduce nonlin
       <h2>Why did we used GroupNorm instead of BatchNorm or LayerNorm here?</h2>
 
       <div class="concept-row">
-        <div class="concept-card"><div class="concept-card-title">BatchNorm — not suitable</div><div class="concept-card-body">Depends on batch statistics. Video models run with tiny batch sizes (high memory), making batch stats noisy and training unstable.</div></div>
-        <div class="concept-card"><div class="concept-card-title">LayerNorm — decent but</div><div class="concept-card-body">Normalizes all channels equally. Works great for transformers but may not preserve spatial/channel structure in CNN-style blocks.</div></div>
+        <div class="concept-card"><div class="concept-card-title">BatchNorm: not suitable</div><div class="concept-card-body">Depends on batch statistics. Video models run with tiny batch sizes (high memory), making batch stats noisy and training unstable.</div></div>
+        <div class="concept-card"><div class="concept-card-title">LayerNorm: decent but</div><div class="concept-card-body">Normalizes all channels equally. Works great for transformers but may not preserve spatial/channel structure in CNN-style blocks.</div></div>
       </div>
 
       <p>GroupNorm divides channels into groups and normalizes each group independently. It is completely independent of batch size and stable even at batch size 1, which is why it is used in diffusion models.</p>
@@ -1484,7 +1484,7 @@ Input x: (B=2, C=128, T=8, H=4, W=4)
     <span class="c-str">"""
     Single-head self-attention over spatial tokens at each timestep.
 
-    Used only in the VAE bottleneck (middle block) — not in the DiT.
+    Used only in the VAE bottleneck (middle block), not in the DiT.
 
     This gives the VAE global spatial context at the lowest resolution.
 
@@ -2237,7 +2237,7 @@ GroupNorm → SiLU → 1×1×1 Conv
         <span class="c-cm"># ── Upsampling stages ─────────────────────────────────────────</span>
         <span class="c-cm"># Mirror of encoder stages but reversed</span>
         <span class="c-cm"># stage_channels_rev: [512, 256, 128]</span>
-        <span class="c-cm">#   stage 0: 512 → 512  (no upsample — mirrors encoder stage 2)</span>
+        <span class="c-cm">#   stage 0: 512 → 512  (no upsample, mirrors encoder stage 2)</span>
         <span class="c-cm">#   stage 1: 512 → 256  + TemporalUp + SpatialUp</span>
         <span class="c-cm">#   stage 2: 256 → 128  + TemporalUp + SpatialUp</span>
         self.stages = nn.ModuleList()
@@ -2332,6 +2332,638 @@ GroupNorm → SiLU → 1×1×1 Conv
 </ul>
     `
   },
+  {
+  title: "Full VAE Model",
+  tag: "VAE",
+  subtitle: "A Variational Autoencoder",
+  body: `
+<p>
+  Ok, now we are going to enter a totally different universe:
+  the universe of <strong>vision</strong>.
+  There will be a lot of new terminology and concepts, but I will try to explain them one by one and then finally complete our VAE model.
+</p>
+
+<h2>First, What is an Autoencoder?</h2>
+
+<p>
+  An <strong>Autoencoder (AE)</strong> is a model that learns how to compress a full image or video into a small latent space, and then reconstruct it back again.
+</p>
+
+<p>
+  In simple words, it learns a compact representation of the input.
+  That latent representation stores the important information in compressed form.
+</p>
+
+<p>
+  So instead of working with a huge video tensor like:
+</p>
+
+<pre>(B, 3, T, H, W)</pre>
+
+<p>
+  we try to map it into a much smaller latent tensor:
+</p>
+
+<pre>(B, C', T', H', W')</pre>
+
+<p>
+  and from that smaller representation, reconstruct the original video.
+</p>
+
+
+<p>
+  Why do we need this?
+  Because we usually do not have enough compute power to process a full high-resolution video directly.
+  A single 1280×720 image is already expensive.
+  A 5-second video at 16 fps is even more expensive.
+</p>
+
+<h2>The Problem with a Plain Autoencoder</h2>
+
+<p>
+  A plain autoencoder gives us one deterministic latent point for each input.
+  That means every training video gets mapped to one specific point in latent space.
+  
+<p>
+  It is analogous to how we encode words in an LLM using word2vec.
+</p>
+
+
+<p>
+  Word2vec is essentially a lookup table, you give it a token, it looks it up and gives you a fixed vector.
+  That vector space is full of voids, with only a few vectors actually defined.
+</p>
+
+<p>
+  The same thing happens with a plain AE.
+  You train it on videos, and for each video you get one deterministic point z in the latent space.
+
+<p>
+  These are the only valid points.
+  Everything else is void.
+  The decoder has never seen anything else.
+</p>
+
+
+<p>
+  Here, the problem is that if I sample a random point from this latent space,
+  that point may land inside one of those void regions which is meaningless.
+</p>
+<p>
+  Now why should we sample from this space in the first place?
+  Why not just use the exact training points?
+</p>
+
+<p>
+  Because generation models do not start from a training latent.
+  They start from random noise:
+</p>
+
+<pre>z = torch.randn(...)</pre>
+
+<p>
+  and then gradually guide that noise toward something meaningful.
+</p>
+
+<p>
+  The problem is: in an infinite space, the generation model will never land exactly on a training point.
+  It will always land somewhere nearby.
+</p>
+
+<div class="hero-image">
+    <img 
+        src="images/AE.png" 
+        alt="AE"
+    />
+    <p class="caption">
+        
+    </p>
+    </div>
+<p>
+  The decoder sees 'x' A point it was never trained on directly.
+  It may produce artifacts, unstable outputs, or meaningless reconstructions.
+</p>
+
+<p>
+  For that to work, the latent space must be continuous and well-behaved.
+  A plain autoencoder does not enforce that.
+</p>
+
+<div class="callout">
+  <strong>Key issue:</strong> a plain AE learns compression, but not a good generative latent space which is required by our generation model.
+</div>
+
+<h2>The VAE Fix: Distributions Instead of Points</h2>
+
+
+<p>
+  This is where the <strong>Variational Autoencoder (VAE)</strong> comes in.
+</p>
+
+<p>
+  A VAE does not output one single latent vector directly.
+  Instead, the encoder outputs the parameters of a distribution:
+</p>
+
+<pre>mean + logvar</pre>
+
+<p>
+  More precisely, for each input, the encoder predicts a Gaussian distribution:
+</p>
+
+<pre>q(z|x) = N(mean, diag(std²))</pre>
+
+<p>
+  Then we sample from that distribution to get the latent point and Now instead of a void-filled space, you get a continuous, smooth landscape.
+</p>
+
+<p>
+  So the pipeline becomes:
+</p>
+
+<div class="hero-image">
+    <img 
+        src="images/vae.png" 
+        alt="VAE"
+    />
+    <p class="caption">
+        
+    </p>
+    </div>
+
+<p>
+  That is the main idea of a VAE.
+</p>
+
+
+<h2>What Are Latent Channels?</h2>
+
+<p>
+  Now let us break down the term <strong>latent channels</strong>.
+</p>
+
+<p>
+  They are similar to normal feature channels.
+  Each channel can carry some learned information like motion, texture, edges, color structure, or temporal patterns.
+</p>
+
+<p>
+  For example, one channel might respond more to motion boundaries, another to edges, another to lighting changes, and so on.
+</p>
+
+
+<p>
+  But in a VAE, each channel is not just one number per position, it is a distribution.
+  So we need two numbers per channel:
+</p>
+
+<ul>
+  <li>mean (μ)</li>
+  <li>variance (σ²)</li>
+</ul>
+
+<p>
+  That is why the encoder outputs:
+</p>
+
+<pre>
+(B, 2 × latent_channels, T', H', W')
+</pre>
+
+<p>
+  Then we split it cleanly:
+</p>
+
+<pre>
+mean, logvar = enc_out.chunk(2, dim=1)
+</pre>
+
+<p>
+  So:
+</p>
+
+<pre>
+First  latent_channels → mean    (μ)
+Second latent_channels → logvar  (log σ²)
+</pre>
+
+<p>
+  If <code>latent_channels = 16</code>, then the encoder output actually has 32 channels:
+</p>
+
+<ul>
+  <li>16 channels for mean</li>
+  <li>16 channels for log variance</li>
+</ul>
+
+<div class="callout">
+  <strong>Important:</strong>
+  The neural network does not "know" it is outputting mean and logvar.
+  It is just outputting numbers.
+  We are the ones treating the first half as mean and the second half as logvar, and enforcing that interpretation through the loss function.
+</div>
+
+<p>
+  Also notice:
+  the encoder predicts <code>logvar</code> instead of <code>std</code> directly.
+</p>
+
+<p>
+  This is because variance must always stay positive.
+  Predicting log variance is numerically much more stable.
+</p>
+
+<p>
+  Later we recover the standard deviation using:
+</p>
+
+<pre>
+std = exp(0.5 × logvar)
+</pre>
+
+<div class="callout">
+  <strong>Important:</strong> the sampled latent <code>z</code> is not the same as mean or logvar.
+  <code>z</code> is created from them using the reparameterization trick:
+</div>
+
+<pre>
+z = mean + std * eps
+</pre>
+
+<p>
+  where:
+</p>
+
+<pre>
+eps ~ N(0, I)
+</pre>
+
+
+<h2>Why Gaussian?</h2>
+<p>
+  We use a Gaussian because it is simple, stable, and has a closed-form KL divergence.
+  That makes training much easier.
+</p>
+
+<p>
+  Another important reason is that a Gaussian prior gives us a nice continuous latent space.
+  This is exactly what we want for generation.
+</p>
+
+<p>
+  We enforce the distribution to stay close to a standard Gaussian:
+</p>
+
+<pre>
+N(0, I)
+</pre>
+
+
+<h2>Now Let Us Build the Full VAE</h2>
+
+<p>
+  The complete VAE has three parts:
+</p>
+
+<ul>
+  <li><strong>Encoder</strong> → compresses the video and predicts mean + logvar</li>
+  <li><strong>DiagonalGaussian</strong> → samples the latent and computes KL loss</li>
+  <li><strong>Decoder</strong> → reconstructs the video from the sampled latent</li>
+</ul>
+
+<h2>Implementation</h2>
+<h2>Step 1 VAEOutput Dataclass</h2>
+
+<p>
+  First, we define a clean output container so the forward pass does not return an ugly tuple of 7 things:
+</p>
+
+<pre><span class="c-kw">@dataclass</span>
+<span class="c-kw">class</span> <span class="c-fn">VAEOutput</span>:
+    z:          torch.Tensor   <span class="c-cm"># sampled latent  (B, C', T', H', W')</span>
+    mean:       torch.Tensor   <span class="c-cm"># encoder mean    (B, C', T', H', W')</span>
+    logvar:     torch.Tensor   <span class="c-cm"># encoder logvar  (B, C', T', H', W')</span>
+    recon:      torch.Tensor   <span class="c-cm"># decoded video   (B, 3,  T,  H,  W)</span>
+    loss_recon: torch.Tensor   <span class="c-cm"># scalar</span>
+    loss_kl:    torch.Tensor   <span class="c-cm"># scalar</span>
+    loss_total: torch.Tensor   <span class="c-cm"># scalar</span></pre>
+
+<p>
+  Nothing special here just defining a dataclass
+  </p>
+
+<h2>Step 2 DiagonalGaussian</h2>
+
+<p>
+  This class wraps all the math around sampling and computing KL loss.
+  Let us go through it piece by piece.
+</p>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">DiagonalGaussian</span>(nn.Module):
+    <span class="c-str">"""
+    Represents q(z|x) = N(mean, diag(std²)).
+    'Diagonal' means each latent dim is independent
+    no cross-correlations between channels.
+    This is the standard VAE assumption.
+    """</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, deterministic: bool = <span class="c-kw">False</span>):
+        <span class="c-fn">super</span>().__init__()
+        self.deterministic = deterministic</pre>
+
+<p>
+  "Diagonal" Gaussian means we assume all latent dimensions are <strong>independent</strong> of each other.
+  The covariance matrix is diagonal i.e no cross-channel correlations.
+  This is the standard VAE assumption and it massively simplifies the math.
+</p>
+
+<p>
+  The <code>deterministic</code> flag is useful at inference time, instead of sampling, you just return the mean directly. Stable, reproducible encoding.
+</p>
+
+<h2>The Reparameterization Trick</h2>
+
+<pre>    <span class="c-kw">def</span> <span class="c-fn">sample</span>(
+        self,
+        mean: torch.Tensor,
+        logvar: torch.Tensor,
+    ) -> torch.Tensor:
+        <span class="c-kw">if</span> self.deterministic:
+            <span class="c-kw">return</span> mean
+
+        logvar = logvar.clamp(<span class="c-num">-30.0</span>, <span class="c-num">20.0</span>)
+        std    = torch.exp(<span class="c-num">0.5</span> * logvar)
+
+        eps = torch.randn_like(mean)
+        <span class="c-kw">return</span> mean + std * eps</pre>
+
+<p>
+  The naive way to sample from <code>N(μ, σ²)</code> is:
+</p>
+
+<pre>z = torch.normal(mean, std)</pre>
+
+<p>
+  But this is not differentiable. Backprop cannot flow through a random sampling operation.
+</p>
+
+<p>
+  The reparameterization trick solves this by separating the randomness from the parameters:
+</p>
+
+<pre>
+ε ~ N(0, I)       ← pure noise, no parameters
+z = μ + σ × ε    ← gradients flow through μ and σ cleanly
+</pre>
+
+<p>
+  The randomness is now in <code>ε</code> which has no parameters, so gradients can flow freely through <code>mean</code> and <code>std</code>.
+</p>
+
+<p>
+  One more thing, we clamp <code>logvar</code> to <code>[-30, 20]</code>:
+</p>
+
+<pre>logvar = logvar.clamp(-30.0, 20.0)</pre>
+
+<p>
+  because <code>exp(logvar)</code> blows up to infinity if <code>logvar</code> is large.
+  Without this clamp, one bad batch can NaN your whole training run.
+</p>
+
+<h2>KL Loss</h2>
+
+<pre>    <span class="c-kw">def</span> <span class="c-fn">kl_loss</span>(
+        self,
+        mean: torch.Tensor,
+        logvar: torch.Tensor,
+    ) -> torch.Tensor:
+        logvar = logvar.clamp(<span class="c-num">-30.0</span>, <span class="c-num">20.0</span>)
+        kl = <span class="c-num">-0.5</span> * (<span class="c-num">1.0</span> + logvar - mean.pow(<span class="c-num">2</span>) - logvar.exp())
+        <span class="c-kw">return</span> kl.mean()</pre>
+
+<p>
+  The KL loss measures how far the encoder's distribution <code>q(z|x)</code> is from the prior <code>p(z) = N(0, I)</code>.
+</p>
+
+<p>
+  The formula for KL between two Gaussians is:
+</p>
+
+<pre>
+KL(q || p) = -0.5 × Σ( 1 + logvar - mean² - exp(logvar) )
+</pre>
+
+<p>
+  Breaking it down intuitively:
+</p>
+
+<ul>
+  <li><code>mean²</code> : penalizes the mean for drifting away from 0</li>
+  <li><code>exp(logvar)</code> : penalizes variance for being too large</li>
+  <li><code>logvar</code> : rewards variance for not collapsing to 0 (the model shouldn't become deterministic)</li>
+  <li><code>1</code> : normalization constant from the closed-form derivation</li>
+</ul>
+
+<p>
+  Together this pushes the encoder to produce distributions that stay close to:
+  <pre>N(0, I)</pre>
+  which gives us a smooth latent space instead of disconnected isolated points.
+
+</p>
+
+<h2>Step 3 VAE3D</h2>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">VAE3D</span>(nn.Module):
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(
+        self,
+        in_channels: int = <span class="c-num">3</span>,
+        base_channels: int = <span class="c-num">128</span>,
+        latent_channels: int = <span class="c-num">16</span>,
+        ch_mult: tuple = (<span class="c-num">1</span>, <span class="c-num">2</span>, <span class="c-num">4</span>),
+        num_res_blocks: int = <span class="c-num">2</span>,
+        spatial_ds: int = <span class="c-num">2</span>,
+        temporal_ds: int = <span class="c-num">2</span>,
+        num_groups: int = <span class="c-num">32</span>,
+        kl_weight: float = <span class="c-num">1e-6</span>,
+        recon_loss: str = <span class="c-str">"l1"</span>,
+    ):
+        <span class="c-fn">super</span>().__init__()
+
+        self.latent_channels = latent_channels
+        self.kl_weight       = kl_weight
+        self.recon_loss      = recon_loss
+
+        shared = dict(
+            base_channels=base_channels,
+            latent_channels=latent_channels,
+            ch_mult=ch_mult,
+            num_res_blocks=num_res_blocks,
+            num_groups=num_groups,
+        )
+
+        self.encoder  = Encoder3D(in_channels=in_channels,  spatial_ds=spatial_ds,  temporal_ds=temporal_ds,  **shared)
+        self.decoder  = Decoder3D(out_channels=in_channels, spatial_us=spatial_ds,  temporal_us=temporal_ds,  **shared)
+        self.posterior = DiagonalGaussian(deterministic=<span class="c-kw">False</span>)</pre>
+
+<p>
+  The <code>shared</code> dict is just a convenience since both encoder and decoder need the same channel schedule, same number of ResBlocks, etc.
+  Passing <code>**shared</code> unpacks it into keyword arguments.
+</p>
+
+<p>
+  Notice <code>spatial_us=spatial_ds</code> and <code>temporal_us=temporal_ds</code>:
+  the decoder must mirror the encoder exactly, same number of up/downsamples, same channel sizes, just reversed.
+</p>
+
+<h2>Step 4 Forward Pass</h2>
+
+<pre>    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x: torch.Tensor) -> <span class="c-fn">VAEOutput</span>:
+
+        <span class="c-cm"># 1. Encode → mean + logvar</span>
+        enc_out      = self.encoder(x)
+        mean, logvar = enc_out.chunk(<span class="c-num">2</span>, dim=<span class="c-num">1</span>)
+
+        <span class="c-cm"># 2. Sample z via reparameterization</span>
+        z = self.posterior.sample(mean, logvar)
+
+        <span class="c-cm"># 3. Decode</span>
+        recon = self.decoder(z)
+
+        <span class="c-cm"># 4. Reconstruction loss</span>
+        <span class="c-kw">if</span> self.recon_loss == <span class="c-str">"l1"</span>:
+            loss_recon = F.l1_loss(recon, x)
+        <span class="c-kw">else</span>:
+            loss_recon = F.mse_loss(recon, x)
+
+        <span class="c-cm"># 5. KL loss</span>
+        loss_kl = self.posterior.kl_loss(mean, logvar)
+
+        <span class="c-cm"># 6. Total loss</span>
+        loss_total = loss_recon + self.kl_weight * loss_kl
+
+        <span class="c-kw">return</span> <span class="c-fn">VAEOutput</span>(
+            z=z,
+            mean=mean,
+            logvar=logvar,
+            recon=recon,
+            loss_recon=loss_recon,
+            loss_kl=loss_kl,
+            loss_total=loss_total,
+        )</pre>
+
+<p>
+  Step by step:
+</p>
+
+<ul>
+  <li><strong>Encode:</strong> encoder outputs <code>(B, 2×C', T', H', W')</code>, we split it into mean and logvar along the channel dim</li>
+  <li><strong>Sample:</strong> reparameterization trick gives us <code>z</code></li>
+  <li><strong>Decode:</strong> decoder reconstructs the video from <code>z</code></li>
+  <li><strong>Loss:</strong> reconstruction + KL</li>
+</ul>
+
+<h2>Why L1 and Not L2 for Video?</h2>
+
+<div class="concept-row">
+
+  <div class="concept-card">
+    <div class="concept-card-title">L2 Loss (MSE)</div>
+    <div class="concept-card-body">
+      Penalizes large errors much more than small ones so Outliers dominate. On video, a single wrong pixel in a bright region can distort the whole gradient signal.
+    </div>
+  </div>
+
+  <div class="concept-card">
+    <div class="concept-card-title">L1 Loss (MAE)</div>
+    <div class="concept-card-body">
+      Treats all errors equally regardless of size. More robust to outliers.
+    </div>
+  </div>
+
+</div>
+
+<h2>The KL Weight β</h2>
+
+<pre>loss_total = loss_recon + self.kl_weight * loss_kl</pre>
+
+<p>
+  or
+</p>
+
+<pre>L = L_recon + β × L_KL</pre>
+
+<p>
+  We set <code>β = 1e-6</code>, which is very small because:
+</p>
+
+<ul>
+  <li>Our primary goal is accurate video reconstruction</li>
+  <li>If β is too large, KL dominates and the model ignores reconstruction quality entirely</li>
+  <li>If β is too small, the encoder collapses to deterministic (no distribution, no valid sampling)</li>
+  <li><code>1e-6</code> is a good value for video VAEs as it keeps reconstruction sharp and the latent space stays continuous too</li>
+</ul>
+
+
+
+<h2>Encode and Decode Separately</h2>
+
+<p>
+  During training we always go encode → sample → decode.
+  But at inference we often want to use these separately:
+</p>
+
+<pre>    <span class="c-kw">def</span> <span class="c-fn">encode</span>(self, x: torch.Tensor) -> torch.Tensor:
+        enc_out      = self.encoder(x)
+        mean, logvar = enc_out.chunk(<span class="c-num">2</span>, dim=<span class="c-num">1</span>)
+        <span class="c-kw">return</span> self.posterior.sample(mean, logvar)
+
+    <span class="c-kw">def</span> <span class="c-fn">decode</span>(self, z: torch.Tensor) -> torch.Tensor:
+        <span class="c-kw">return</span> self.decoder(z)</pre>
+
+<p>
+  In the image-to-video pipeline, the VAE encoder is used to compress the conditioning frame,
+  and the VAE decoder is used at the very end to turn the final latent back into a watchable video.
+  They are called independently, not together.
+</p>
+
+<h2>Putting it All Together</h2>
+
+<p>
+  Here is the complete picture of what the VAE does and why:
+</p>
+
+<pre>
+Problem:  raw video is too big to process directly
+
+AE fix:   compress it → but latent space has voids → generation fails
+
+VAE fix:  compress into a distribution → smooth latent space → safe sampling
+
+Encoder:  video → (mean, logvar)
+Sample:   z = mean + std × ε         (reparameterization trick)
+Decoder:  z → reconstructed video
+
+Loss:     L_recon  → encoder must remember the video
+          L_KL     → encoder must stay close to N(0, I)
+          together → sharp reconstruction + smooth latent space
+</pre>
+
+
+<h2>Key Takeaways</h2>
+
+<ul>
+  <li>Plain autoencoders create void-filled latent spaces so generation models cannot reliably land on valid points</li>
+  <li>VAEs fix this by encoding into distributions, making the latent space continuous and smooth</li>
+  <li>The reparameterization trick (<code>z = μ + σε</code>) makes sampling differentiable so gradients can flow back through the encoder</li>
+  <li>KL loss enforces the distributions to stay close to <code>N(0, I)</code>, and reconstruction loss keeps the decoder accurate</li>
+  <li>We keep β very small (<code>1e-6</code>) to prioritize reconstruction quality</li>
+  <li>The network does not know about mean and logvar, we impose that interpretation by how we use the output</li>
+</ul>
+
+`
+},
 ];
 
 let current = 0;
