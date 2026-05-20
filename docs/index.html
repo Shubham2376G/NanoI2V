@@ -3,7 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {
+        delimiters: [
+            {left: '$$', right: '$$', display: true},
+            {left: '$', right: '$',   display: false}
+        ]
+    });">
+</script>
   <title>NanoI2V: Building I2V from Scratch</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -70,6 +79,7 @@
       display: flex;
       align-items: center;
       gap: 20px;
+      
     }
 
     #nav-progress {
@@ -103,7 +113,10 @@
       text-transform: uppercase;
       margin-bottom: 20px;
     }
-
+    .katex-display {
+      margin: 1.5rem 0;
+      overflow-x: auto;
+    }
     .home-title {
       font-family: var(--serif);
       font-size: clamp(2rem, 4.5vw, 3.2rem);
@@ -149,7 +162,11 @@
       margin-top: 60px;
       border-top: 1px solid var(--border);
     }
-
+    .github-actions {
+      display: flex;
+      align-items: center;
+      gap: 0px;
+    }
     .topic-list-label {
       font-family: var(--mono);
       font-size: 10px;
@@ -463,6 +480,10 @@
       margin: 20px 0;
       font-size: 0.9rem;
     }
+    .github-star {
+      display: flex;
+      align-items: center;
+    } 
     .lesson-body th {
       font-family: var(--mono);
       font-size: 10px;
@@ -554,8 +575,25 @@
   <button class="nav-logo" onclick="showHome()">NanoI2V</button>
   <div class="nav-right">
     <span id="nav-progress"></span>
-    <a class="nav-gh" href="https://github.com/Shubham2376G/NanoI2V" target="_blank">GitHub ↗</a>
-  </div>
+  
+    <div class="github-actions">
+      <div class="github-star">
+        <iframe
+          src="https://ghbtns.com/github-btn.html?user=Shubham2376G&repo=NanoI2V&type=star&count=true"
+          frameborder="0"
+          scrolling="0"
+          width="110"
+          height="20"
+          title="GitHub">
+        </iframe>
+      </div>
+    
+      <a class="nav-gh"
+         href="https://github.com/Shubham2376G/NanoI2V"
+         target="_blank">
+         GitHub ↗
+      </a>
+    </div>
 </nav>
 
 <!-- HOME -->
@@ -2964,6 +3002,1435 @@ Loss:     L_recon  → encoder must remember the video
 
 `
 },
+  {
+    title: "Flow Matching",
+    tag: "Flow",
+    subtitle: "Method to move noise into meaningful video latents.",
+    body: String.raw`
+
+
+      <p>
+        You may have heard about things like <strong>DDPM</strong>,
+        <strong>score matching</strong>, or <strong>flow matching</strong>.
+        They are all different generative paradigms.
+      </p>
+
+      <p>
+        Here we will only focus on <strong>flow matching</strong>.
+      </p>
+      <h2>The Main Idea</h2>
+
+<p>
+  In image or video generation, our task is simple:
+</p>
+<p>
+  Move points from a simple distribution (Gaussian noise) to a complex distribution (real videos).
+</p>
+ 
+$$P_{\text{initial}} \;\longrightarrow\; P_{\text{target}}$$
+$$\mathcal{N}(0, I) \;\longrightarrow\; \text{distribution of real videos}$$
+ 
+<p>
+  We want to find a path that moves every point (noisy-random video) in the noise distribution
+  to a corresponding point (real video) in the target distribution.
+</p>
+ 
+<div class="callout">
+  <strong>Note:</strong> By point I mean some video in a high dimensional space with some distribution, not pixel
+</div>
+
+<div class="hero-image">
+    <img 
+        src="images/fm.png" 
+        alt="Flow Matching"
+    />
+    <p class="caption">
+        Flow Matching
+    </p>
+    </div>
+
+
+ 
+<h2>Notation</h2>
+ 
+<p>
+  We parameterize this movement using time $t$:
+</p>
+ 
+<pre>t = 0  →  pure noise (where we start)
+t = 1  →  clean data (where we want to end up)</pre>
+ 
+<p>
+  Let $x_t$ be the position of a point as it travels from noise to data.
+</p>
+ 
+<p>
+  Then $p_t(x)$ is the probability distribution of all those points at time $t$ and $u_t(x)$ is the <strong>velocity field</strong>: the direction and speed
+  each point is moving at time $t$.
+</p>
+ 
+<p>
+  For a single point:
+</p>
+ 
+$$\frac{dx}{dt} = u_t(x)$$
+ 
+ 
+ 
+<h2>What Are We Actually Learning?</h2>
+ 
+<p>
+  Our goal is to learn a parameterized velocity field $u_\theta(x_t, t)$
+  such that integrating it from $t=0$ to $t=1$ moves noise to data:
+</p>
+ 
+$$x_1 = x_0 + \int_0^1 u_\theta(x_t,\, t)\, dt$$
+ 
+<p>
+  So we want to make our predicted velocity match the true velocity at every point.
+</p>
+ 
+$$\mathcal{L}_{\text{FM}} = \mathbb{E}_{t,\, x_t} \left[ \left\| u_\theta(x_t, t) - u_t(x_t) \right\|^2 \right]$$
+ 
+ 
+<h2>The Problem: We Do Not Know the True Velocity</h2>
+ 
+<p>
+  We do not have access to $u_t(x)$.
+  We do not know the target distribution explicitly, we only have samples from it (our training videos) i.e just some points from the distribution.
+</p>
+ 
+<p>
+  So we cannot compute this loss directly, thus we introduce Conditional Flow Matching (CFM).
+</p>
+ 
+ 
+ 
+<h2>Conditional Flow Matching</h2>
+ 
+<p>
+  Instead of trying to match the full velocity,
+  we condition on a single target point $x_1$ from the training data.
+</p>
+ 
+<p>
+  Given a specific $x_1$, we define a simple straight-line path from noise to that point:
+</p>
+ 
+$$x_t = (1 - t) \cdot x_0 \;+\; t \cdot x_1, \qquad x_0 \sim \mathcal{N}(0, I)$$
+ 
+<p>
+At $t=0$ you have pure noise. At $t=1$ you have the clean sample.
+</p>
+ 
+<p>
+  The velocity along this path is the time derivative:
+</p>
+ 
+$$\frac{dx_t}{dt} = \frac{d}{dt}\bigl[(1-t)\cdot x_0 + t \cdot x_1\bigr] = -x_0 + x_1 = x_1 - x_0$$
+ 
+
+
+<p>
+  We can also write this in an equivalent form.
+  At time $t$, your position is $x_t$.
+  So:
+</p>
+ 
+$$u_t(x_t \mid x_1) = \frac{x_1 - x_t}{1 - t}$$
+ 
+<p>
+  Both forms are identical. You can verify by substituting
+  $x_t = (1-t)\cdot x_0 + t \cdot x_1$ into the second form and simplifying.
+</p>
+ 
+
+<p>
+  Now the conditional flow matching loss becomes:
+</p>
+ 
+$$\mathcal{L}_{\text{CFM}} = \mathbb{E}_{t,\, x_1,\, x_0} \left[ \left\| u_\theta(x_t, t) - u_t(x_t \mid x_1) \right\|^2 \right]$$
+ 
+<p>
+  where $x_t = (1-t)\cdot x_0 + t \cdot x_1$
+</p>
+ 
+
+<h2>Why Does This Work?</h2>
+
+<p>
+  You might ask: we require the loss
+  $ \mathcal{L}_{\mathrm{FM}} $,
+  so how can we instead train using the conditional loss
+  $ \mathcal{L}_{\mathrm{CFM}} $?
+  Are we solving a different problem?
+</p>
+
+<p>
+  No. This is the central theorem behind flow matching.
+</p>
+
+<p>
+  Start with the original flow matching objective:
+</p>
+
+$$
+\mathcal{L}_{\mathrm{FM}}
+=
+\mathbb{E}\left[
+\left\|u_\theta(x_t,t)-u_t(x_t)\right\|^2
+\right]
+$$
+
+<p>
+  Expanding the square gives:
+</p>
+
+$$
+\mathcal{L}_{\mathrm{FM}}
+=
+\mathbb{E}\left[\|u_\theta\|^2\right]
+-
+2\,\mathbb{E}\left[
+\langle u_\theta,u_t\rangle
+\right]
++
+\underbrace{
+\mathbb{E}\left[\|u_t\|^2\right]
+}_{\text{constant w.r.t. }\theta}
+$$
+
+<p>
+  The final term does not depend on the network parameters
+  $ \theta $,
+  so minimizing
+  $ \mathcal{L}_{\mathrm{FM}} $
+  is equivalent to minimizing:
+</p>
+
+$$
+\mathbb{E}\left[\|u_\theta\|^2\right]
+-
+2\,\mathbb{E}\left[
+\langle u_\theta,u_t\rangle
+\right]
+$$
+
+<p>
+  Now consider the conditional flow matching objective:
+</p>
+
+$$
+\mathcal{L}_{\mathrm{CFM}}
+=
+\mathbb{E}\left[
+\left\|
+u_\theta(x_t,t)
+-
+u_t(x_t\mid x_1)
+\right\|^2
+\right]
+$$
+
+<p>
+  For straight-line interpolation,
+</p>
+
+$$
+u_t(x_t\mid x_1)=x_1-x_0
+$$
+
+<p>
+  so:
+</p>
+
+$$
+\mathcal{L}_{\mathrm{CFM}}
+=
+\mathbb{E}\left[
+\left\|
+u_\theta-(x_1-x_0)
+\right\|^2
+\right]
+$$
+
+<p>
+  Expanding again:
+</p>
+
+$$
+\mathcal{L}_{\mathrm{CFM}}
+=
+\mathbb{E}\left[\|u_\theta\|^2\right]
+-
+2\,\mathbb{E}\left[
+\langle u_\theta,(x_1-x_0)\rangle
+\right]
++
+\underbrace{
+\mathbb{E}\left[\|x_1-x_0\|^2\right]
+}_{\text{constant w.r.t. }\theta}
+$$
+
+<p>
+  Again, the final term is constant with respect to
+  $ \theta $.
+  Therefore minimizing
+  $ \mathcal{L}_{\mathrm{CFM}} $
+  is equivalent to minimizing:
+</p>
+
+$$
+\mathbb{E}\left[\|u_\theta\|^2\right]
+-
+2\,\mathbb{E}\left[
+\langle u_\theta,(x_1-x_0)\rangle
+\right]
+$$
+
+<p>
+  Therefore, the two objectives are equivalent if the cross terms are equal:
+</p>
+
+$$
+\mathbb{E}\left[
+\langle u_\theta,u_t\rangle
+\right]
+=
+\mathbb{E}\left[
+\langle u_\theta,u_t(x_t\mid x_1)\rangle
+\right]
+$$
+
+<p>
+  To prove this, write the first expectation as an integral over the marginal density
+  $ p_t(x) $:
+</p>
+
+$$
+\mathbb{E}\left[
+\langle u_\theta,u_t\rangle
+\right]
+=
+\int_0^1
+\int
+\langle u_\theta(x,t),u_t(x)\rangle
+\,p_t(x)\,dx\,dt
+$$
+
+<p>
+  Using the law of total expectation,
+</p>
+
+$$
+f(x)
+=
+\int
+f(x\mid z)\,p(z\mid x)\,dz
+$$
+
+<p>
+  we obtain
+</p>
+
+$$
+u_t(x)
+=
+\int
+u_t(x\mid x_1)\,
+p(x_1\mid x,t)\,dx_1
+$$
+
+
+<p>
+  Substituting this into the integral:
+</p>
+
+$$
+=
+\int_t
+\int_x
+\left\langle
+u_\theta(x,t),
+\int
+u_t(x\mid x_1)
+p(x_1\mid x,t)\,dx_1
+\right\rangle
+p_t(x)\,dx\,dt
+$$
+
+<p>
+  By linearity, move the inner integral outside:
+</p>
+
+$$
+=
+\int_t
+\int_x
+\int_{x_1}
+\langle
+u_\theta(x,t),
+u_t(x\mid x_1)
+\rangle
+\,p(x_1\mid x,t)\,
+p_t(x)
+\,dx_1\,dx\,dt
+$$
+
+<p>
+  Now apply Bayes' rule:
+</p>
+
+$$
+p(x_1\mid x,t)\,p_t(x)
+=
+p_t(x\mid x_1)\,p_{\mathrm{data}}(x_1)
+$$
+
+<p>
+  Substituting:
+</p>
+
+$$
+=
+\int_t
+\int_x
+\int_{x_1}
+\langle
+u_\theta(x,t),
+u_t(x\mid x_1)
+\rangle
+\,p_t(x\mid x_1)\,
+p_{\mathrm{data}}(x_1)
+\,dx_1\,dx\,dt
+$$
+
+<p>
+  But this is exactly the expectation:
+</p>
+
+$$
+=
+\mathbb{E}\left[
+\langle
+u_\theta(x_t,t),
+u_t(x_t\mid x_1)
+\rangle
+\right]
+$$
+
+<p>
+  Therefore:
+</p>
+
+$$
+\boxed{
+\mathbb{E}\left[
+\langle u_\theta,u_t\rangle
+\right]
+=
+\mathbb{E}\left[
+\langle
+u_\theta,
+u_t(x_t\mid x_1)
+\rangle
+\right]
+}
+$$
+
+<p>
+  This proves that
+  $ \mathcal{L}_{\mathrm{FM}} $
+  and
+  $ \mathcal{L}_{\mathrm{CFM}} $
+  differ only by constants independent of
+  $ \theta $,
+  so both objectives have the same minimizer.
+</p>
+
+ 
+<div class="callout">
+  <strong>Conclusion:</strong> $\mathcal{L}_{\text{FM}}$ and $\mathcal{L}_{\text{CFM}}$ have
+  identical gradients with respect to $\theta$.
+  Minimizing the conditional loss is exactly the same optimization problem as minimizing the marginal loss.
+  We replaced an intractable loss with a tractable one, and nothing changed mathematically.
+</div>
+ 
+<p>
+  This is why flow matching is powerful.
+  We never need to know the full target distribution.
+  We just need training samples from it.
+</p>
+ 
+ 
+<h2>Timestep Sampling</h2>
+
+<p>
+  During training we sample a random timestep $t$ for each batch.
+  The naive choice is uniform:
+</p>
+
+$$t \sim \text{Uniform}(0, 1)$$
+
+<p>
+  But this treats all timesteps as equally important. They are not.
+</p>
+
+
+<p>
+  Near $t=0$, $x_t$ is almost clean data.
+  The model does not need to learn very much here because the input is already close to the answer.
+  So the gradient signal is less informative.
+</p>
+
+<p>
+  Near $t=1$, $x_t$ is almost pure noise.
+  There is very little structure left to recover, so again the gradient signal is not very useful.
+</p>
+
+<p>
+  Near $t=0.5$, the model is doing the hardest work.
+  It sees a mix of signal and noise, so it has to figure out which parts are real and which parts are corruption.
+  This is where the most useful gradient signal lives.
+</p>
+
+<p>
+  So we use <strong>logit-normal sampling</strong> to concentrate training on these hard timesteps:
+</p>
+
+$$u \sim \mathcal{N}(\mu,\, \sigma^2), \qquad t = \text{sigmoid}(u)$$
+
+<p>
+  Since $\text{sigmoid}(0) = 0.5$, and we use $\mu = 0$,
+  this puts more probability mass near $t = 0.5$.
+</p>
+
+
+<p>
+  The idea is simple: we still train on all timesteps, but we do more gradient updates where the model actually learns the most useful direction.
+</p>
+
+<h2>Training Direction vs Inference Direction</h2>
+
+<p>
+  In our implementation, the convention is:
+</p>
+
+<pre>t = 0  →  clean data
+t = 1  →  pure noise</pre>
+
+<p>
+  So during training, the interpolation adds more noise as $t$ increases:
+</p>
+
+$$x_t = (1 - t) \cdot x_0 + t \cdot \varepsilon, \qquad \varepsilon \sim \mathcal{N}(0, I)$$
+
+<p>
+  and the target velocity points from data toward noise:
+</p>
+
+$$v^* = \varepsilon - x_0$$
+
+<p>
+  During <strong>inference</strong>, we run it backwards.
+  We start from $t=1$ (pure noise) and walk toward $t=0$ (clean data).
+</p>
+
+<pre>Training:  t: 0 → 1,  x_0 is clean data,  x_t gets noisier as t increases
+Inference: t: 1 → 0,  start from pure noise,  subtract velocity to reach clean data</pre>
+
+<p>
+  The velocity $v^* = \varepsilon - x_0$ points toward noise.
+  At inference we go against that direction:
+</p>
+
+$$x_{t - dt} = x_t \;-\; dt \cdot v_\theta(x_t, t)$$
+
+<div class="callout">
+  <strong>Note on conventions:</strong> The original flow matching paper (Lipman et al. 2022)
+  uses the opposite convention " $t=0$ is noise, $t=1$ is data".
+  Our implementation follows the "Rectified Flow" convention used by Wan2.1,
+  FLUX, and SD3, where $t=0$ is clean data and $t=1$ is pure noise.
+</div>
+ 
+ 
+<h2>Classifier-Free Guidance (CFG)</h2>
+ 
+<p>
+  Until now, we have only talked about turning noise into video. Its time to add some conditioning signals to it: text prompt and  the reference image frame.
+  CFG lets us control how strongly the output follows that conditioning.
+  So the task changes from predicting velocity in an unconditional setting to predicting velocity given some conditioning signal.
+</p>
+ 
+<p>
+  To do that, we train the model to work in both modes:
+</p>
+
+<p>
+  <strong>During training:</strong> randomly drop the conditioning with probability $p_{\text{uncond}}$ (typically 10%).
+  Replace it with a null embedding.
+  This forces the model to also learn unconditional generation.
+</p>
+ 
+<p>
+  <strong>During inference:</strong> run the model twice at each step:
+  once with conditioning, once with the null embedding, and then combine the two predictions:
+</p>
+
+$$v_{\text{guided}} = v_{\text{uncond}} \;+\; s \cdot (v_{\text{cond}} - v_{\text{uncond}})$$
+
+<p>
+  where $s$ is the guidance scale. Breaking this down:
+</p>
+ 
+<pre>v_uncond              →  base velocity, without conditioning
+(v_cond - v_uncond)   →  the direction pushed by conditioning
+s                     →  how strongly we follow that direction</pre>
+ 
+<p>
+  A guidance scale of $s = 1$ means we follow the conditioning normally.
+  Higher values like 7, 9, or 12 push the output more strongly toward the prompt,
+  at the cost of some diversity.
+</p>
+ 
+<div class="callout">
+  <strong>Note:</strong> We train the model in unconditional mode too, so we can measure how the conditioning signal changes the predicted direction.
+  Then during inference, CFG lets us control how strongly we want to move in that direction.
+</div>
+ 
+ 
+<h2>ODE Solvers: Euler vs Heun</h2>
+ 
+<div class="hero-image">
+    <img 
+        src="images/Heun.png" 
+        alt="Heun's method"
+    />
+    <p class="caption">
+        Euler vs Heun's method
+    </p>
+    </div>
+
+
+<p>
+  During Inference, we solve this ODE:
+</p>
+ 
+$$\frac{dx}{dt} = v_\theta(x_t, t)$$
+ 
+<p>
+  We start from pure noise $x_1 \sim \mathcal{N}(0, I)$ and integrate backward toward clean data $x_0$.
+</p>
+
+
+
+<p>
+  <strong>Euler:</strong> evaluate the velocity at the current position and take a step in that direction.
+</p>
+
+
+ 
+$$x_{t - dt} = x_t \;-\; dt \cdot v_\theta(x_t, t)$$
+ 
+<p>
+  This is simple and fast because it only needs one model evaluation per step.
+  But if the timestep is large, error starts accumulating.
+  The reason is that the actual trajectory is curved, while Euler assumes the direction stays constant during the whole step.
+</p>
+
+
+<p>
+  <strong>Heun (2nd order Runge-Kutta):</strong> first take a temporary Euler step,
+  check what the velocity looks like there, then average both directions.
+</p>
+
+$$\tilde{x} = x_t - dt \cdot v_1, \qquad v_1 = v_\theta(x_t, t) \tag{predictor}$$
+
+$$v_2 = v_\theta(\tilde{x},\; t - dt) \tag{corrector}$$
+
+$$x_{t-dt} = x_t - dt \cdot \frac{v_1 + v_2}{2} \tag{averaged step}$$
+
+<p>
+  Heun needs two model evaluations per step, but gives a much more accurate trajectory.
+  Euler only looks at the current direction.
+  Heun also checks where that step would land, notices if the trajectory is curving,
+  and corrects the step using both directions.
+</p>
+
+<div class="callout">
+  <strong>Note:</strong> If the velocity field curves strongly, Euler can drift away from the true trajectory because it assumes the direction stays fixed during the step.
+  Heun reduces this error by checking the velocity both before and after the step, then averaging them.
+</div>
+ 
+ 
+<h2>Key Takeaways</h2>
+ 
+<ul>
+  <li>
+    Flow matching learns a velocity field $u_\theta(x_t, t)$ that moves points
+    from noise to data along straight-line paths.
+  </li>
+  <li>
+    The conditional loss $\mathcal{L}_{\text{CFM}}$ is mathematically equivalent to
+    the intractable marginal loss $\mathcal{L}_{\text{FM}}$ — same gradients, same optimization.
+  </li>
+  <li>
+    The target velocity $x_1 - x_0$ is constant along the entire trajectory.
+    Direction never changes, only position does.
+  </li>
+  <li>
+    Logit-normal timestep sampling concentrates training near $t = 0.5$
+    where the model does its hardest work.
+  </li>
+  <li>
+    Training goes $t: 0 \to 1$, inference goes $t: 1 \to 0$
+  </li>
+  <li>
+    CFG amplifies the direction conditioning pushes which is controlled by the guidance scale $s$.
+  </li>
+  <li>
+    Euler is one model call per step; Heun is two but significantly more accurate.
+  </li>
+</ul>
+
+
+    `
+  },
+  {
+    title: "Flow Scheduler",
+    tag: "Flow",
+    subtitle: "",
+    body: String.raw`
+      <h2>The Code</h2>
+
+<p>
+  We now have all the theory we need.
+  Let us go through the implementation block by block.
+</p>
+
+<span class="code-label">flow/scheduler.py</span>
+
+<pre><span class="c-kw">import</span> torch
+<span class="c-kw">import</span> torch.nn <span class="c-kw">as</span> nn
+<span class="c-kw">from</span> dataclasses <span class="c-kw">import</span> dataclass
+<span class="c-kw">from</span> typing <span class="c-kw">import</span> Optional, Callable
+
+
+<span class="c-cm"># ─────────────────────────────────────────────</span>
+<span class="c-cm"># Output container</span>
+<span class="c-cm"># ─────────────────────────────────────────────</span>
+
+<span class="c-kw">@dataclass</span>
+<span class="c-kw">class</span> <span class="c-fn">FlowMatchingOutput</span>:
+    loss: torch.Tensor          <span class="c-cm"># training loss (scalar)</span>
+    v_pred: torch.Tensor        <span class="c-cm"># predicted velocity</span>
+    v_target: torch.Tensor      <span class="c-cm"># target velocity (ε - x_0)</span>
+    x_t: torch.Tensor           <span class="c-cm"># noisy latent at timestep t</span>
+    t: torch.Tensor             <span class="c-cm"># sampled timesteps (B,)</span>
+
+
+<span class="c-cm"># ─────────────────────────────────────────────</span>
+<span class="c-cm"># Timestep sampling strategies</span>
+<span class="c-cm"># ─────────────────────────────────────────────</span>
+
+<span class="c-kw">class</span> <span class="c-fn">TimestepSampler</span>:
+    <span class="c-str">"""
+    Samples timesteps t ∈ [0, 1] during training.
+
+    Uniform sampling works but recent work (SD3, Wan2.1) shows that
+    sampling more timesteps near t=0.5 (the "middle" of the trajectory)
+    improves training efficiency — those timesteps are hardest for the
+    model and carry the most gradient signal.
+
+    Strategies:
+        uniform  → t ~ Uniform(0, 1)
+        logit    → t ~ logit-normal (more mass near 0.5)
+    """</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, strategy: str = <span class="c-str">"logit"</span>, logit_mean: float = <span class="c-num">0.0</span>, logit_std: float = <span class="c-num">1.0</span>):
+        <span class="c-kw">assert</span> strategy <span class="c-kw">in</span> (<span class="c-str">"uniform"</span>, <span class="c-str">"logit"</span>)
+        self.strategy   = strategy
+        self.logit_mean = logit_mean
+        self.logit_std  = logit_std
+
+    <span class="c-kw">def</span> <span class="c-fn">sample</span>(self, batch_size: int, device: torch.device) -> torch.Tensor:
+        <span class="c-kw">if</span> self.strategy == <span class="c-str">"uniform"</span>:
+            <span class="c-kw">return</span> torch.rand(batch_size, device=device)
+
+        <span class="c-kw">elif</span> self.strategy == <span class="c-str">"logit"</span>:
+            <span class="c-cm"># Sample from logit-normal:</span>
+            <span class="c-cm"># u ~ N(mean, std), then t = sigmoid(u)</span>
+            <span class="c-cm"># This concentrates mass near t=0.5 (sigmoid(0) = 0.5)</span>
+            u = torch.randn(batch_size, device=device)
+            u = self.logit_mean + self.logit_std * u
+            <span class="c-kw">return</span> torch.sigmoid(u)
+
+
+<span class="c-cm"># ─────────────────────────────────────────────</span>
+<span class="c-cm"># Flow Matching Scheduler</span>
+<span class="c-cm"># ─────────────────────────────────────────────</span>
+
+<span class="c-kw">class</span> <span class="c-fn">FlowMatchingScheduler</span>(nn.Module):
+    <span class="c-str">"""
+    Implements flow matching for video latent diffusion.
+
+    The flow interpolates linearly between data (x_0) and noise (ε):
+        x_t = (1 - t) * x_0 + t * ε
+
+    The target velocity is constant:
+        v* = ε - x_0
+
+    The model learns: v_θ(x_t, t, c) ≈ v*
+
+    At inference, we integrate the ODE from t=1 (noise) to t=0 (data):
+        x_{t - dt} = x_t - dt * v_θ(x_t, t, c)
+    """</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(
+        self,
+        timestep_strategy: str = <span class="c-str">"logit"</span>,    <span class="c-cm"># how to sample t during training</span>
+        logit_mean: float = <span class="c-num">0.0</span>,
+        logit_std: float = <span class="c-num">1.0</span>,
+        cfg_scale: float = <span class="c-num">7.0</span>,              <span class="c-cm"># classifier-free guidance scale</span>
+        p_uncond: float = <span class="c-num">0.1</span>,               <span class="c-cm"># prob of dropping conditioning</span>
+    ):
+        <span class="c-kw">super</span>().<span class="c-fn">__init__</span>()
+        self.cfg_scale = cfg_scale
+        self.p_uncond  = p_uncond
+        self.t_sampler = TimestepSampler(timestep_strategy, logit_mean, logit_std)
+
+    <span class="c-cm"># ── Forward noising ──────────────────────────────────────────────</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">add_noise</span>(
+        self,
+        x_0: torch.Tensor,
+        t: torch.Tensor,
+        noise: Optional[torch.Tensor] = <span class="c-kw">None</span>,
+    ) -> <span class="c-fn">tuple</span>[torch.Tensor, torch.Tensor]:
+        <span class="c-str">"""
+        Interpolate between data and noise at timestep t.
+
+        Args:
+            x_0:   (B, C, T, H, W)  clean latent from VAE
+            t:     (B,)              timesteps in [0, 1]
+            noise: optional pre-sampled noise (for reproducibility)
+
+        Returns:
+            x_t:   noisy latent at timestep t
+            noise: the noise that was added (needed to compute target)
+        """</span>
+        <span class="c-kw">if</span> noise <span class="c-kw">is</span> <span class="c-kw">None</span>:
+            noise = torch.randn_like(x_0)
+
+        <span class="c-cm"># Reshape t: (B,) → (B, 1, 1, 1, 1) to broadcast over (C, T, H, W)</span>
+        t_broadcast = t.view(-<span class="c-num">1</span>, <span class="c-num">1</span>, <span class="c-num">1</span>, <span class="c-num">1</span>, <span class="c-num">1</span>)
+
+        <span class="c-cm"># Linear interpolation: x_t = (1-t)*x_0 + t*ε</span>
+        x_t = (<span class="c-num">1.0</span> - t_broadcast) * x_0 + t_broadcast * noise
+
+        <span class="c-kw">return</span> x_t, noise
+
+    <span class="c-kw">def</span> <span class="c-fn">get_velocity_target</span>(
+        self,
+        x_0: torch.Tensor,
+        noise: torch.Tensor,
+    ) -> torch.Tensor:
+        <span class="c-str">"""
+        Target velocity the model should predict.
+        For linear flow: v* = ε - x_0  (constant along trajectory)
+
+        Args:
+            x_0:   (B, C, T, H, W)  clean latent
+            noise: (B, C, T, H, W)  sampled noise
+
+        Returns:
+            v_target: (B, C, T, H, W)
+        """</span>
+        <span class="c-kw">return</span> noise - x_0
+
+    <span class="c-cm"># ── Training step ────────────────────────────────────────────────</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">training_loss</span>(
+        self,
+        model: nn.Module,
+        x_0: torch.Tensor,
+        c_txt: torch.Tensor,                 <span class="c-cm"># text conditioning (B, L, D)</span>
+        c_img: torch.Tensor,                 <span class="c-cm"># image conditioning (B, N, D)</span>
+        null_c_txt: torch.Tensor,            <span class="c-cm"># null text embedding for CFG dropout</span>
+        null_c_img: torch.Tensor,            <span class="c-cm"># null image embedding for CFG dropout</span>
+    ) -> <span class="c-fn">FlowMatchingOutput</span>:
+        <span class="c-str">"""
+        Single training step.
+
+        1. Sample t ~ TimestepSampler
+        2. Sample noise ε ~ N(0, I)
+        3. Compute x_t = (1-t)*x_0 + t*ε
+        4. Drop conditioning with prob p_uncond  (CFG training)
+        5. Predict velocity v_θ(x_t, t, c)
+        6. Loss = MSE(v_pred, v_target)
+        """</span>
+        B      = x_0.shape[<span class="c-num">0</span>]
+        device = x_0.device
+
+        <span class="c-cm"># 1. Sample timesteps</span>
+        t = self.t_sampler.sample(B, device)
+
+        <span class="c-cm"># 2. Sample noise and create noisy latent</span>
+        noise = torch.randn_like(x_0)
+        x_t, noise = self.add_noise(x_0, t, noise)
+
+        <span class="c-cm"># 3. Compute target velocity</span>
+        v_target = self.get_velocity_target(x_0, noise)
+
+        <span class="c-cm"># 4. CFG conditioning dropout</span>
+        <span class="c-cm"># For each sample independently, decide whether to drop conditioning</span>
+        drop_mask = torch.rand(B, device=device) &lt; self.p_uncond  <span class="c-cm"># (B,) bool</span>
+
+        <span class="c-cm"># Replace conditioning with null embeddings where drop_mask is True</span>
+        c_txt_in = torch.where(
+            drop_mask.view(B, <span class="c-num">1</span>, <span class="c-num">1</span>),        <span class="c-cm"># (B, 1, 1) broadcasts over (L, D)</span>
+            null_c_txt.expand_as(c_txt),
+            c_txt,
+        )
+        c_img_in = torch.where(
+            drop_mask.view(B, <span class="c-num">1</span>, <span class="c-num">1</span>),
+            null_c_img.expand_as(c_img),
+            c_img,
+        )
+
+        <span class="c-cm"># 5. Predict velocity</span>
+        <span class="c-cm"># Model takes: noisy latent, timestep, text cond, image cond</span>
+        v_pred = model(x_t, t, c_txt_in, c_img_in)
+
+        <span class="c-cm"># 6. MSE loss</span>
+        loss = torch.nn.functional.mse_loss(v_pred, v_target)
+
+        <span class="c-kw">return</span> FlowMatchingOutput(
+            loss     = loss,
+            v_pred   = v_pred,
+            v_target = v_target,
+            x_t      = x_t,
+            t        = t,
+        )
+
+    <span class="c-cm"># ── Inference: ODE solvers ───────────────────────────────────────</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">@torch.no_grad()</span>
+    <span class="c-kw">def</span> <span class="c-fn">euler_sample</span>(
+        self,
+        model: nn.Module,
+        shape: <span class="c-fn">tuple</span>,
+        c_txt: torch.Tensor,
+        c_img: torch.Tensor,
+        null_c_txt: torch.Tensor,
+        null_c_img: torch.Tensor,
+        num_steps: int = <span class="c-num">20</span>,
+        cfg_scale: Optional[float] = <span class="c-kw">None</span>,
+        device: torch.device = torch.device(<span class="c-str">"cuda"</span>),
+        verbose: bool = <span class="c-kw">False</span>,
+    ) -> torch.Tensor:
+        <span class="c-str">"""
+        Euler ODE solver — simplest inference method.
+        Integrates from t=1 (noise) to t=0 (data) in fixed steps.
+
+        Args:
+            shape:     latent shape (B, C, T', H', W')
+            c_txt:     text conditioning
+            c_img:     image conditioning
+            num_steps: number of Euler steps (more = better quality, slower)
+            cfg_scale: override self.cfg_scale if provided
+
+        Returns:
+            x_0: (B, C, T', H', W')  denoised latent
+        """</span>
+        cfg = cfg_scale <span class="c-kw">if</span> cfg_scale <span class="c-kw">is</span> <span class="c-kw">not</span> <span class="c-kw">None</span> <span class="c-kw">else</span> self.cfg_scale
+
+        <span class="c-cm"># Start from pure noise at t=1</span>
+        x_t = torch.randn(shape, device=device)
+
+        <span class="c-cm"># Timestep schedule: linearly from 1 → 0</span>
+        <span class="c-cm"># We use num_steps+1 points: [1.0, ..., 0.0]</span>
+        timesteps = torch.linspace(<span class="c-num">1.0</span>, <span class="c-num">0.0</span>, num_steps + <span class="c-num">1</span>, device=device)
+        dt_const  = <span class="c-num">1.0</span> / num_steps   <span class="c-cm"># step size (constant for Euler)</span>
+
+        <span class="c-kw">for</span> i <span class="c-kw">in</span> range(num_steps):
+            t_cur = timesteps[i]
+            t_batch = t_cur.expand(shape[<span class="c-num">0</span>])   <span class="c-cm"># (B,)</span>
+
+            <span class="c-cm"># CFG: run model twice</span>
+            <span class="c-cm"># 1. Conditioned</span>
+            v_cond = model(x_t, t_batch, c_txt, c_img)
+
+            <span class="c-cm"># 2. Unconditioned</span>
+            v_uncond = model(
+                x_t, t_batch,
+                null_c_txt.expand_as(c_txt),
+                null_c_img.expand_as(c_img),
+            )
+
+            <span class="c-cm"># 3. Guided velocity</span>
+            v_guided = v_uncond + cfg * (v_cond - v_uncond)
+
+            <span class="c-cm"># 4. Euler step: x_{t-dt} = x_t - dt * v</span>
+            x_t = x_t - dt_const * v_guided
+
+            <span class="c-kw">if</span> verbose:
+                <span class="c-fn">print</span>(f<span class="c-str">"Step {i+1}/{num_steps} | t={t_cur:.3f} | "</span>
+                      f<span class="c-str">"|v|={v_guided.abs().mean():.4f}"</span>)
+
+        <span class="c-kw">return</span> x_t   <span class="c-cm"># x_0: denoised latent</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">@torch.no_grad()</span>
+    <span class="c-kw">def</span> <span class="c-fn">dpm_sample</span>(
+        self,
+        model: nn.Module,
+        shape: <span class="c-fn">tuple</span>,
+        c_txt: torch.Tensor,
+        c_img: torch.Tensor,
+        null_c_txt: torch.Tensor,
+        null_c_img: torch.Tensor,
+        num_steps: int = <span class="c-num">20</span>,
+        cfg_scale: Optional[float] = <span class="c-kw">None</span>,
+        device: torch.device = torch.device(<span class="c-str">"cuda"</span>),
+    ) -> torch.Tensor:
+        <span class="c-str">"""
+        Heun's method (2nd order Runge-Kutta).
+        Better quality than Euler at the same step count.
+        Costs 2× model evaluations per step.
+
+        Euler:  x_{t-dt} = x_t - dt * v(x_t)            1 eval/step
+        Heun:   x̃  = x_t - dt * v(x_t)                  1st eval
+                x_{t-dt} = x_t - dt/2 * (v(x_t) + v(x̃)) 2nd eval (corrector)
+        """</span>
+        cfg = cfg_scale <span class="c-kw">if</span> cfg_scale <span class="c-kw">is</span> <span class="c-kw">not</span> <span class="c-kw">None</span> <span class="c-kw">else</span> self.cfg_scale
+
+        x_t       = torch.randn(shape, device=device)
+        timesteps = torch.linspace(<span class="c-num">1.0</span>, <span class="c-num">0.0</span>, num_steps + <span class="c-num">1</span>, device=device)
+        dt_const  = <span class="c-num">1.0</span> / num_steps
+
+        <span class="c-kw">for</span> i <span class="c-kw">in</span> range(num_steps):
+            t_cur  = timesteps[i]
+            t_next = timesteps[i + <span class="c-num">1</span>]
+            t_batch = t_cur.expand(shape[<span class="c-num">0</span>])
+
+            <span class="c-cm"># ── Predictor (Euler step)</span>
+            v_cond   = model(x_t, t_batch, c_txt, c_img)
+            v_uncond = model(
+                x_t, t_batch,
+                null_c_txt.expand_as(c_txt),
+                null_c_img.expand_as(c_img),
+            )
+            v1 = v_uncond + cfg * (v_cond - v_uncond)
+            x_pred = x_t - dt_const * v1
+
+            <span class="c-cm"># ── Corrector (evaluate at predicted next point)</span>
+            t_batch_next = t_next.expand(shape[<span class="c-num">0</span>])
+            v_cond2   = model(x_pred, t_batch_next, c_txt, c_img)
+            v_uncond2 = model(
+                x_pred, t_batch_next,
+                null_c_txt.expand_as(c_txt),
+                null_c_img.expand_as(c_img),
+            )
+            v2 = v_uncond2 + cfg * (v_cond2 - v_uncond2)
+
+            <span class="c-cm"># Average the two velocity estimates</span>
+            x_t = x_t - dt_const * <span class="c-num">0.5</span> * (v1 + v2)
+
+        <span class="c-kw">return</span> x_t</pre>
+
+
+<h2>Output Container</h2>
+
+<pre><span class="c-kw">@dataclass</span>
+<span class="c-kw">class</span> <span class="c-fn">FlowMatchingOutput</span>:
+    loss:     torch.Tensor   <span class="c-cm"># training loss (scalar)</span>
+    v_pred:   torch.Tensor   <span class="c-cm"># predicted velocity</span>
+    v_target: torch.Tensor   <span class="c-cm"># target velocity (ε - x_0)</span>
+    x_t:      torch.Tensor   <span class="c-cm"># noisy latent at timestep t</span>
+    t:        torch.Tensor   <span class="c-cm"># sampled timesteps (B,)</span></pre>
+
+<p>
+  Nothing special here.
+</p>
+
+
+
+<h2>Timestep Sampler</h2>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">TimestepSampler</span>:
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, strategy: str = <span class="c-str">"logit"</span>, logit_mean: float = <span class="c-num">0.0</span>, logit_std: float = <span class="c-num">1.0</span>):
+        <span class="c-kw">assert</span> strategy <span class="c-kw">in</span> (<span class="c-str">"uniform"</span>, <span class="c-str">"logit"</span>)
+        self.strategy   = strategy
+        self.logit_mean = logit_mean
+        self.logit_std  = logit_std
+
+    <span class="c-kw">def</span> <span class="c-fn">sample</span>(self, batch_size: int, device: torch.device) -> torch.Tensor:
+        <span class="c-kw">if</span> self.strategy == <span class="c-str">"uniform"</span>:
+            <span class="c-kw">return</span> torch.rand(batch_size, device=device)
+
+        <span class="c-kw">elif</span> self.strategy == <span class="c-str">"logit"</span>:
+            u = torch.randn(batch_size, device=device)
+            u = self.logit_mean + self.logit_std * u
+            <span class="c-kw">return</span> torch.sigmoid(u)</pre>
+
+<p>
+  Two strategies, as discussed.
+</p>
+
+<p>
+  The uniform path is straightforward, just sample $t$ uniformly between 0 and 1.
+</p>
+
+<p>
+  The logit path does this in two lines:
+</p>
+
+<pre>
+u = torch.randn(batch_size, device=device)   # u ~ N(0, 1)
+u = self.logit_mean + self.logit_std * u     # shift and scale
+return torch.sigmoid(u)                      # squash into (0, 1)
+</pre>
+
+<p>
+  With <code>logit_mean=0</code> and <code>logit_std=1</code>,
+  this is equivalent to sampling from a standard logit-normal:
+</p>
+
+$$u \sim \mathcal{N}(0, 1), \qquad t = \text{sigmoid}(u)$$
+
+<p>
+  Since <code>sigmoid(0) = 0.5</code>, the distribution peaks at $t = 0.5$
+  and falls off toward both extremes.
+</p>
+
+
+<h2>FlowMatchingScheduler</h2>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">FlowMatchingScheduler</span>(nn.Module):
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(
+        self,
+        timestep_strategy: str = <span class="c-str">"logit"</span>,
+        logit_mean: float = <span class="c-num">0.0</span>,
+        logit_std: float = <span class="c-num">1.0</span>,
+        cfg_scale: float = <span class="c-num">7.0</span>,
+        p_uncond: float = <span class="c-num">0.1</span>,
+    ):
+        <span class="c-kw">super</span>().<span class="c-fn">__init__</span>()
+        self.cfg_scale = cfg_scale
+        self.p_uncond  = p_uncond
+        self.t_sampler = TimestepSampler(timestep_strategy, logit_mean, logit_std)</pre>
+
+<p>
+  Four things stored here:
+</p>
+
+<p>
+  <code>cfg_scale</code> controls how strongly the model follows the conditioning signal at inference.
+  We will use this in the ODE solvers.
+</p>
+
+<p>
+  <code>p_uncond</code> is the probability of dropping the conditioning during training.
+  Set to 0.1 (10%) of the time we train unconditionally.
+  This is what makes CFG work at inference.
+</p>
+
+<p>
+  <code>t_sampler</code> is our <code>TimestepSampler</code> from above. You can swap strategies without touching the scheduler.
+</p>
+
+
+<h2>add_noise</h2>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">add_noise</span>(
+    self,
+    x_0: torch.Tensor,
+    t: torch.Tensor,
+    noise: Optional[torch.Tensor] = <span class="c-kw">None</span>,
+) -> <span class="c-fn">tuple</span>[torch.Tensor, torch.Tensor]:
+
+    <span class="c-kw">if</span> noise <span class="c-kw">is</span> <span class="c-kw">None</span>:
+        noise = torch.randn_like(x_0)
+
+    <span class="c-cm"># Reshape t: (B,) → (B, 1, 1, 1, 1) to broadcast over (C, T, H, W)</span>
+    t_broadcast = t.view(-<span class="c-num">1</span>, <span class="c-num">1</span>, <span class="c-num">1</span>, <span class="c-num">1</span>, <span class="c-num">1</span>)
+
+    <span class="c-cm"># Linear interpolation: x_t = (1-t)*x_0 + t*ε</span>
+    x_t = (<span class="c-num">1.0</span> - t_broadcast) * x_0 + t_broadcast * noise
+
+    <span class="c-kw">return</span> x_t, noise</pre>
+
+<p>
+  This is the forward noising step:
+</p>
+
+$$x_t = (1 - t) \cdot x_0 \;+\; t \cdot \varepsilon, \qquad \varepsilon \sim \mathcal{N}(0, I)$$
+
+<p>
+  One thing worth paying attention to here:
+</p>
+
+<pre>
+t_broadcast = t.view(-1, 1, 1, 1, 1)
+</pre>
+
+<p>
+  <code>t</code> comes in as shape <code>(B,)</code> — one timestep per sample in the batch.
+  But <code>x_0</code> is shape <code>(B, C, T, H, W)</code>.
+  We cannot multiply them directly.
+</p>
+
+<p>
+  <code>.view(-1, 1, 1, 1, 1)</code> reshapes <code>t</code> to <code>(B, 1, 1, 1, 1)</code>
+  so PyTorch can broadcast it across all the spatial, temporal, and channel dimensions automatically.
+</p>
+
+<p>
+  We also return <code>noise</code> alongside <code>x_t</code> to compute the target velocity later.
+</p>
+
+
+<h2>get_velocity_target</h2>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">get_velocity_target</span>(
+    self,
+    x_0: torch.Tensor,
+    noise: torch.Tensor,
+) -> torch.Tensor:
+    <span class="c-kw">return</span> noise - x_0</pre>
+
+<p>
+  One line. This is just:
+</p>
+
+$$v^* = \varepsilon - x_0$$
+
+
+<p>
+  The model's job during training is to predict this exact vector,
+  given only $x_t$ and $t$ as inputs.
+</p>
+
+
+<h2>training_loss</h2>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">training_loss</span>(self, model, x_0, c_txt, c_img, null_c_txt, null_c_img):
+
+    B      = x_0.shape[<span class="c-num">0</span>]
+    device = x_0.device
+
+    <span class="c-cm"># 1. Sample timesteps</span>
+    t = self.t_sampler.sample(B, device)
+
+    <span class="c-cm"># 2. Sample noise and create noisy latent</span>
+    noise = torch.randn_like(x_0)
+    x_t, noise = self.add_noise(x_0, t, noise)
+
+    <span class="c-cm"># 3. Compute target velocity</span>
+    v_target = self.get_velocity_target(x_0, noise)</pre>
+
+<p>
+  Steps 1-3 are the core of the training loop.
+  Sample the timesteps, build the noisy latent at that timestep, compute what velocity the model should predict.
+</p>
+
+<pre>    <span class="c-cm"># 4. CFG conditioning dropout</span>
+    drop_mask = torch.rand(B, device=device) &lt; self.p_uncond   <span class="c-cm"># (B,) bool</span>
+
+    c_txt_in = torch.where(
+        drop_mask.view(B, <span class="c-num">1</span>, <span class="c-num">1</span>),
+        null_c_txt.expand_as(c_txt),
+        c_txt,
+    )
+    c_img_in = torch.where(
+        drop_mask.view(B, <span class="c-num">1</span>, <span class="c-num">1</span>),
+        null_c_img.expand_as(c_img),
+        c_img,
+    )</pre>
+
+<p>
+  For each sample in the batch, we decide whether to drop its conditioning or not.
+</p>
+
+<p>
+  <code>drop_mask</code> is a boolean tensor of shape <code>(B,)</code>.
+  Where it is <code>True</code>, we replace the real conditioning with the null embedding.
+</p>
+
+<p>
+  <code>torch.where(condition, x, y)</code> picks from <code>x</code> where condition is True,
+  from <code>y</code> where it is False. So:
+</p>
+
+<pre>
+drop_mask = True   →  use null embedding  (unconditional)
+drop_mask = False  →  use real embedding  (conditional)
+</pre>
+
+<p>
+  The same drop decision applies to both text and image conditioning for a given sample.
+  You either drop both or neither, not one without the other.
+</p>
+
+<p>
+  The <code>.view(B, 1, 1)</code> is the same broadcasting trick as before.
+  The conditioning tensors are shape <code>(B, L, D)</code>,
+  so we need the mask to be <code>(B, 1, 1)</code> to broadcast over the sequence and feature dims.
+</p>
+
+<pre>
+    # 5. Predict velocity
+    v_pred = model(x_t, t, c_txt_in, c_img_in)
+
+    # 6. MSE loss
+    loss = torch.nn.functional.mse_loss(v_pred, v_target)
+</pre>
+
+<p>
+  Finally, we feed the noisy latent, timestep, and (possibly dropped) conditioning into the model.
+  Compute MSE between predicted and target velocity.
+</p>
+
+<p>
+  That is the entire training objective:
+</p>
+
+$$\mathcal{L}_{\text{CFM}} = \mathbb{E}_{t,\, x_1,\, x_0} \left[ \left\| v_\theta(x_t, t, c) - (\varepsilon - x_0) \right\|^2 \right]$$
+
+
+<h2>euler_sample</h2>
+
+<pre><span class="c-cm"># Start from pure noise at t=1</span>
+x_t = torch.randn(shape, device=device)
+
+<span class="c-cm"># Timestep schedule: linearly from 1 → 0</span>
+timesteps = torch.linspace(<span class="c-num">1.0</span>, <span class="c-num">0.0</span>, num_steps + <span class="c-num">1</span>, device=device)
+dt_const  = <span class="c-num">1.0</span> / num_steps</pre>
+
+<p>
+  We start from pure noise at $t=1$ and walk toward $t=0$ in <code>num_steps</code> equal steps.
+</p>
+
+<p>
+  <code>torch.linspace(1.0, 0.0, num_steps + 1)</code> gives us the full schedule including both endpoints.
+  For example with <code>num_steps=4</code>:
+</p>
+
+<pre>
+timesteps = [1.0, 0.75, 0.5, 0.25, 0.0]
+</pre>
+
+<p>
+  We iterate over the first <code>num_steps</code> values (not the last one)
+  since the last step lands us at $t=0$ which is our output.
+</p>
+
+<pre><span class="c-kw">for</span> i <span class="c-kw">in</span> range(num_steps):
+    t_cur   = timesteps[i]
+    t_batch = t_cur.expand(shape[<span class="c-num">0</span>])   <span class="c-cm"># (B,)</span>
+
+    <span class="c-cm"># CFG: run model twice</span>
+    v_cond   = model(x_t, t_batch, c_txt, c_img)
+    v_uncond = model(x_t, t_batch, null_c_txt.expand_as(c_txt), null_c_img.expand_as(c_img))
+
+    <span class="c-cm"># Guided velocity</span>
+    v_guided = v_uncond + cfg * (v_cond - v_uncond)
+
+    <span class="c-cm"># Euler step</span>
+    x_t = x_t - dt_const * v_guided</pre>
+
+<p>
+  At each step:
+</p>
+
+<p>
+  We run the model twice: once with real conditioning, once with null.
+  Then combine them using the CFG formula:
+</p>
+
+$$v_{\text{guided}} = v_{\text{uncond}} \;+\; s \cdot (v_{\text{cond}} - v_{\text{uncond}})$$
+
+<p>
+  Then take a step backwards along the flow:
+</p>
+
+$$x_{t - dt} = x_t \;-\; dt \cdot v_{\text{guided}}$$
+
+<p>
+  The minus sign is important.
+  The learned velocity $v^* = \varepsilon - x_0$ points <em>toward noise</em> (toward $t=1$).
+  We want to go the other way i.e toward clean data, so we subtract it.
+</p>
+
+
+
+
+<h2>dpm_sample (Heun's Method)</h2>
+
+<pre><span class="c-kw">for</span> i <span class="c-kw">in</span> range(num_steps):
+    t_cur   = timesteps[i]
+    t_next  = timesteps[i + <span class="c-num">1</span>]
+    t_batch = t_cur.expand(shape[<span class="c-num">0</span>])
+
+    <span class="c-cm"># ── Predictor (Euler step)</span>
+    v_cond   = model(x_t, t_batch, c_txt, c_img)
+    v_uncond = model(x_t, t_batch, null_c_txt.expand_as(c_txt), null_c_img.expand_as(c_img))
+    v1 = v_uncond + cfg * (v_cond - v_uncond)
+    x_pred = x_t - dt_const * v1</pre>
+
+<p>
+  The first half is identical to Euler to get <code>x_pred</code>.
+  But we do not commit to it yet.
+</p>
+
+<pre>
+    # Corrector (evaluate at predicted next point)
+    t_batch_next = t_next.expand(shape[0])
+    v_cond2   = model(x_pred, t_batch_next, c_txt, c_img)
+    v_uncond2 = model(x_pred, t_batch_next, null_c_txt.expand_as(c_txt), null_c_img.expand_as(c_img))
+    v2 = v_uncond2 + cfg * (v_cond2 - v_uncond2)
+
+    # Average the two velocity estimates
+    x_t = x_t - dt_const * 0.5 * (v1 + v2)
+</pre>
+
+<p>
+  We evaluate the velocity again at the predicted landing point <code>x_pred</code>
+  using the next timestep <code>t_next</code>.
+  Then we step using the average of both estimates:
+</p>
+
+$$x_{t-dt} = x_t \;-\; dt \cdot \frac{v_1 + v_2}{2}$$
+
+<p>
+  The intuition is: Euler only knows the slope at where you are standing right now.
+  Heun takes a peek at the slope where you would land, and averages them.
+  That average is a much better estimate of the true slope along the arc.
+</p>
+
+<div class="callout">
+  <strong>Cost tradeoff:</strong> Euler costs 2 model calls per step (CFG requires conditioned + unconditioned).
+  Heun costs 4 model calls per step, double the cost.
+  But Heun typically needs half the steps to reach the same quality.
+  In practice they are roughly equivalent in total compute,
+  with Heun often giving slightly cleaner outputs.
+</div>
+
+
+<h2>Key Takeaways</h2>
+
+<ul>
+
+  <li>
+    Euler: 2 model calls per step, simple but accumulates error.
+    Heun: 4 model calls per step to correct the Euler's error by evaluating velocity at the predicted landing point too.
+  </li>
+</ul>
+    `
+  },
+  
 ];
 
 let current = 0;
