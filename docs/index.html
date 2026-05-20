@@ -4,15 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
-    onload="renderMathInElement(document.body, {
-        delimiters: [
-            {left: '$$', right: '$$', display: true},
-            {left: '$', right: '$',   display: false}
-        ]
-    });">
-</script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  
+  <script>
+  function renderMath() {
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '$',  right: '$',  display: false }
+      ],
+      throwOnError: false
+    });
+  }
+  
+  window.addEventListener("DOMContentLoaded", renderMath);
+  </script>
   <title>NanoI2V: Building I2V from Scratch</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -115,7 +123,6 @@
     }
     .katex-display {
       margin: 1.5rem 0;
-      overflow-x: auto;
     }
     .home-title {
       font-family: var(--serif);
@@ -3672,7 +3679,7 @@ $$x_{t-dt} = x_t - dt \cdot \frac{v_1 + v_2}{2} \tag{averaged step}$$
   </li>
   <li>
     The conditional loss $\mathcal{L}_{\text{CFM}}$ is mathematically equivalent to
-    the intractable marginal loss $\mathcal{L}_{\text{FM}}$ — same gradients, same optimization.
+    the intractable marginal loss $\mathcal{L}_{\text{FM}}$ because it has same gradients.
   </li>
   <li>
     The target velocity $x_1 - x_0$ is constant along the entire trajectory.
@@ -3692,7 +3699,6 @@ $$x_{t-dt} = x_t - dt \cdot \frac{v_1 + v_2}{2} \tag{averaged step}$$
     Euler is one model call per step; Heun is two but significantly more accurate.
   </li>
 </ul>
-
 
     `
   },
@@ -4470,6 +4476,9 @@ function showLesson(i, updateHash = true) {
   document.getElementById('l-title').textContent = l.title;
   document.getElementById('l-subtitle').textContent = l.subtitle;
   document.getElementById('l-body').innerHTML = l.body;
+
+  renderMath(); // FIX
+
   document.getElementById('nav-progress').textContent = `${i+1} of ${lessons.length}`;
 
   const btnP = document.getElementById('btn-prev');
