@@ -12,9 +12,10 @@
   function renderMath() {
     renderMathInElement(document.body, {
       delimiters: [
-        { left: '$$', right: '$$', display: true },
-        { left: '$',  right: '$',  display: false }
-      ],
+      { left: '$$',  right: '$$',  display: true  },
+      { left: '\\(', right: '\\)', display: false },   // ← ADD THIS
+      { left: '$',   right: '$',   display: false  }
+    ],
       throwOnError: false
     });
   }
@@ -4433,6 +4434,598 @@ $$x_{t-dt} = x_t \;-\; dt \cdot \frac{v_1 + v_2}{2}$$
     Euler: 2 model calls per step, simple but accumulates error.
     Heun: 4 model calls per step to correct the Euler's error by evaluating velocity at the predicted landing point too.
   </li>
+</ul>
+    `
+  },
+  {
+    title: "3D RoPE",
+    tag: "DiT",
+    subtitle: "Rotary Position Embeddings",
+    body: `
+      <p>
+  Now it is time to code our DiT model.
+</p>
+ 
+<p>
+  But before we do that, we need one important concept that will be used inside this model.
+</p>
+ 
+<h2>Rotary Position Embedding (RoPE)</h2>
+ 
+ 
+<p>
+  Earlier transformers handled positions by simply adding positional embeddings directly to the token embedding:
+</p>
+ 
+$$
+x_p = x + e_p
+$$
+ 
+<p>
+  where:
+</p>
+ 
+<ul>
+  <li><code>x</code> → token embedding</li>
+  <li><code>e_p</code> → positional embedding for position <code>p</code></li>
+</ul>
+ 
+<p>
+  This works, but position is injected from the outside.
+  It is not built naturally into the attention mechanism itself.
+</p>
+ 
+<p>
+  RoPE uses a different idea.
+  Instead of adding a position vector, we rotate the embedding.
+</p>
+ 
+<div class="callout">
+  <strong>RoPE idea:</strong> different positions correspond to different rotations, so position becomes encoded as phase.
+</div>
+ 
+<h2>The Main Idea</h2>
+ 
+<p>
+  RoPE treats the embedding dimension like a collection of 2D vectors.
+</p>
+ 
+<p>
+  The hidden dimensions are grouped into pairs:
+</p>
+ 
+<pre>(x₁, x₂), (x₃, x₄), (x₅, x₆), ...</pre>
+ 
+<p>
+  Each pair acts like a small 2D vector.
+  Then we rotate each pair by an angle that depends on the token position.
+</p>
+ 
+<p>
+  So instead of attaching position information directly,
+  we build it into the geometry of the embedding itself. Thus getting a position-dependent orientation.
+</p>
+ 
+<div class="hero-image">
+    <img 
+        src="images/RoPE.png" 
+        alt="Rotary Position Embeddings"
+    />
+    <p class="caption">
+    Image by 
+    <a 
+        href="https://github.com/changyeyu/LLM-RL-Visualized/blob/master/src/README_EN.md" 
+        target="_blank"
+        style="text-decoration: underline; color: inherit;"
+    >
+        author
+    </a>
+</p>
+</div>
+ 
+<h2>How Rotation Is Applied</h2>
+ 
+<p>
+  For a token at position \\(p\\), each dimension pair is rotated by:
+</p>
+ 
+  $$p \\cdot \\theta_i$$
+<p>
+  where:
+</p>
+ 
+<ul>
+  <li>\\(p\\) → token position</li>
+  <li>\\(\\theta_i\\) → frequency used for pair \\(i\\)</li>
+</ul>
+ 
+<p>
+  Different pairs use different frequencies.
+</p>
+ 
+<p>
+  Low-frequency pairs rotate slowly.
+  High-frequency pairs rotate quickly.
+</p>
+ 
+ 
+<h2>Why Do We Need Slow and Fast Frequencies?</h2>
+ 
+<p>
+  Rotations are periodic.
+</p>
+ 
+<p>
+  If we use only one frequency, positions eventually repeat:
+</p>
+ 
+$$
+(\\cos(p\\omega), \\sin(p\\omega))
+$$
+ 
+<p>
+  After enough positions, different tokens can collide.
+  This is called <strong>aliasing</strong>.
+</p>
+ 
+<p>
+  Multiple frequencies solve this problem.
+</p>
+ 
+
+ 
+$$
+\\left[e^{ip\\omega_1}, e^{ip\\omega_2}, e^{ip\\omega_3}, \\dots\\right]
+$$
+ 
+<p>
+  Now position is no longer a single periodic value.
+  It becomes a multi-frequency phase pattern.
+</p>
+ 
+<div class="callout">
+  <strong>Important:</strong> if all frequencies were slow, nearby tokens would look almost identical.
+  If all frequencies were very fast, the representation would become too unstable. Thus We need both.
+</div>
+ 
+<h2>How Attention Uses RoPE</h2>
+ 
+<p>
+  Standard attention score is:
+</p>
+ 
+$$
+q_i^\\top k_j
+$$
+ 
+<p>
+  After applying RoPE, we rotate both query and key:
+</p>
+ 
+$$
+q_i = R(\\theta_i)\\,\\tilde{q}_i
+$$
+ 
+$$
+k_j = R(\\theta_j)\\,\\tilde{k}_j
+$$
+ 
+<p>
+  Then the attention score becomes:
+</p>
+ 
+$$
+q_i^\\top k_j
+=
+\\tilde{q}_i^\\top R(\\theta_j - \\theta_i)\\tilde{k}_j
+$$
+ 
+<p>
+  This is the key insight.
+</p>
+ 
+ 
+<p>
+  The attention score no longer depends only on absolute position, but on relative postions.
+  It becomes aware of how far apart two tokens are.
+</p>
+ 
+ 
+<h2>Why This Is Nice</h2>
+ 
+<p>
+  With RoPE, the model can learn patterns like:
+</p>
+ 
+<ul>
+  <li>this token is 2 steps away</li>
+  <li>that token is 8 positions earlier</li>
+</ul>
+ 
+<p>
+  This is exactly what we want in long-context transformers and especially in video models.
+</p>
+ 
+<h2>3D RoPE for Video</h2>
+ 
+<p>
+  Text has one position axis:
+</p>
+ 
+<pre>p</pre>
+ 
+<p>
+  Video has three position axes:
+</p>
+ 
+<pre>(t, h, w)</pre>
+ 
+<p>
+  So now we apply RoPE along all 3 axis independently:
+</p>
+ 
+<ul>
+  <li>time</li>
+  <li>height</li>
+  <li>width</li>
+</ul>
+ 
+
+$$
+R_t(t), \\; R_h(h), \\; R_w(w)
+$$
+ 
+<p>
+  This means the token gets three independent phase patterns:
+  one for time, one for vertical position, and one for horizontal position.
+</p>
+ 
+<div class="callout">
+  <strong>Important:</strong> this lets attention reason about "2 frames apart" and "8 pixels apart" as separate concepts.
+</div>
+ 
+<h2>Implementation Walkthrough</h2>
+ 
+<h2>Step 1: 1D RoPE Frequencies</h2>
+
+<p>
+  First we build the frequency table for one axis.
+</p>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">get_1d_freqs</span>(
+    dim: int,
+    max_len: int,
+    base: float = 10000.0,
+    device: torch.device = torch.device("cpu"),
+) -> torch.Tensor:
+    <span class="c-str">"""
+    Compute cosine/sine frequency table for 1D RoPE.
+
+    freqs: (max_len, dim/2)
+    """</span>
+    <span class="c-kw">assert</span> dim % 2 == 0, <span class="c-str">"RoPE dim must be even"</span>
+
+    i = torch.arange(0, dim, 2, device=device).float()
+    theta = <span class="c-num">1.0</span> / (base ** (i / dim))
+
+    positions = torch.arange(max_len, device=device).float()
+    freqs = torch.outer(positions, theta)
+
+    <span class="c-kw">return</span> freqs</pre>
+
+<p>
+  Here, <code>theta</code> controls the rotation speed of each pair.
+  Smaller values rotate more slowly.
+  Larger values rotate more quickly.
+</p>
+
+<p>
+  Example output:
+</p>
+
+<pre>get_1d_freqs(dim=4, max_len=3)
+tensor([[0.0000, 0.0000],
+        [1.0000, 0.0100],
+        [2.0000, 0.0200]])</pre>
+
+<p>
+  The output is the angle table for all positions.
+</p>
+
+<h2>Step 2: Convert Angles to Cosine and Sine</h2>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">freqs_to_cos_sin</span>(freqs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    <span class="c-str">"""
+    Convert frequency angles to cos and sin tables.
+    """</span>
+    <span class="c-kw">return</span> freqs.cos(), freqs.sin()</pre>
+
+<p>
+  Nothing fancy here.
+  We just turn angles into the values needed for rotation.
+</p>
+
+<p>
+  Example output:
+</p>
+
+<pre>freqs = tensor([[0.0000, 0.0000],
+                [1.0000, 0.0100]])
+
+cos, sin = freqs_to_cos_sin(freqs)
+
+cos
+tensor([[1.0000, 1.0000],
+        [0.5403, 0.9999]])
+
+sin
+tensor([[0.0000, 0.0000],
+        [0.8415, 0.0100]])</pre>
+
+<h2>Step 3: Rotate a Pair of Dimensions</h2>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">rotate_half</span>(x: torch.Tensor) -> torch.Tensor:
+    <span class="c-str">"""
+    Rearranges pairs for rotation:
+    [x₁, x₂, x₃, x₄, ...] → [-x₂, x₁, -x₄, x₃, ...]
+    """</span>
+    x1 = x[..., 0::2]
+    x2 = x[..., 1::2]
+    <span class="c-kw">return</span> torch.stack([-x2, x1], dim=-1).flatten(-2)</pre>
+
+<p>
+  This is a compact way to apply a 2D rotation without building an explicit matrix.
+</p>
+
+<p>
+  Example output:
+</p>
+
+<pre>x = tensor([[1.0, 2.0, 3.0, 4.0]])
+
+rotate_half(x)
+tensor([[-2.0000,  1.0000, -4.0000,  3.0000]])</pre>
+
+
+
+<h2>Step 4: Apply RoPE in 1D</h2>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">apply_rope_1d</span>(
+    x: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+) -> torch.Tensor:
+    <span class="c-str">"""
+    Apply 1D RoPE rotation to tensor x.
+    """</span>
+    cos = cos.repeat_interleave(2, dim=-1)
+    sin = sin.repeat_interleave(2, dim=-1)
+
+    cos = cos.unsqueeze(0).unsqueeze(0)
+    sin = sin.unsqueeze(0).unsqueeze(0)
+
+    <span class="c-kw">return</span> x * cos + rotate_half(x) * sin</pre>
+
+<p>
+  We expand cosine and sine so they match the full head dimension.
+  Then we broadcast over batch and heads.
+</p>
+
+<h2>Step 5: Build 3D RoPE</h2>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">RoPE3D</span>(nn.Module):
+    <span class="c-str">"""
+    3D Rotary Position Embedding for video tokens.
+
+    Each token has position (t, h, w).
+    The head dimension is split into three chunks:
+        temporal, height, width
+    """</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(
+        self,
+        head_dim: int,
+        max_t: int = 64,
+        max_h: int = 64,
+        max_w: int = 64,
+        base_t: float = 10000.0,
+        base_h: float = 10000.0,
+        base_w: float = 10000.0,
+        theta_t_ratio: float = 0.25,
+        theta_h_ratio: float = 0.375,
+    ):
+        <span class="c-fn">super</span>().<span class="c-fn">__init__</span>()
+
+        self.head_dim = head_dim
+
+        self.dim_t = int(head_dim * theta_t_ratio) // 2 * 2
+        self.dim_h = int(head_dim * theta_h_ratio) // 2 * 2
+        self.dim_w = head_dim - self.dim_t - self.dim_h
+
+        <span class="c-kw">assert</span> self.dim_w % 2 == 0
+        <span class="c-kw">assert</span> self.dim_t + self.dim_h + self.dim_w == head_dim
+
+        freqs_t = get_1d_freqs(self.dim_t, max_t, base_t)
+        freqs_h = get_1d_freqs(self.dim_h, max_h, base_h)
+        freqs_w = get_1d_freqs(self.dim_w, max_w, base_w)
+
+        cos_t, sin_t = freqs_to_cos_sin(freqs_t)
+        cos_h, sin_h = freqs_to_cos_sin(freqs_h)
+        cos_w, sin_w = freqs_to_cos_sin(freqs_w)
+
+        self.register_buffer("cos_t", cos_t)
+        self.register_buffer("sin_t", sin_t)
+        self.register_buffer("cos_h", cos_h)
+        self.register_buffer("sin_h", sin_h)
+        self.register_buffer("cos_w", cos_w)
+        self.register_buffer("sin_w", sin_w)</pre>
+
+<p>
+  The head dimension is split into three parts.
+  Each part is responsible for one axis.
+</p>
+
+<div class="callout">
+  <strong>Important:</strong> the exact split does not have to be equal.
+  The idea is simply that each axis gets its own positional subspace.
+</div>
+
+<p>
+  Example output:
+</p>
+
+<pre>head_dim = 64
+dim_t = 16
+dim_h = 24
+dim_w = 24</pre>
+
+<h2>Step 6: Apply 3D RoPE in the Forward Pass</h2>
+
+<pre>    <span class="c-kw">def</span> <span class="c-fn">forward</span>(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        pos_ids: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+
+        t_ids = pos_ids[..., 0]
+        h_ids = pos_ids[..., 1]
+        w_ids = pos_ids[..., 2]
+
+        cos_t = self.cos_t[t_ids]
+        sin_t = self.sin_t[t_ids]
+        cos_h = self.cos_h[h_ids]
+        sin_h = self.sin_h[h_ids]
+        cos_w = self.cos_w[w_ids]
+        sin_w = self.sin_w[w_ids]
+
+        cos_t = cos_t.unsqueeze(1)
+        sin_t = sin_t.unsqueeze(1)
+        cos_h = cos_h.unsqueeze(1)
+        sin_h = sin_h.unsqueeze(1)
+        cos_w = cos_w.unsqueeze(1)
+        sin_w = sin_w.unsqueeze(1)
+
+        q_t = q[..., :self.dim_t]
+        q_h = q[..., self.dim_t : self.dim_t + self.dim_h]
+        q_w = q[..., self.dim_t + self.dim_h :]
+
+        k_t = k[..., :self.dim_t]
+        k_h = k[..., self.dim_t : self.dim_t + self.dim_h]
+        k_w = k[..., self.dim_t + self.dim_h :]
+
+        q_t = apply_rope_1d(q_t, cos_t, sin_t)
+        q_h = apply_rope_1d(q_h, cos_h, sin_h)
+        q_w = apply_rope_1d(q_w, cos_w, sin_w)
+
+        k_t = apply_rope_1d(k_t, cos_t, sin_t)
+        k_h = apply_rope_1d(k_h, cos_h, sin_h)
+        k_w = apply_rope_1d(k_w, cos_w, sin_w)
+
+        q_rot = torch.cat([q_t, q_h, q_w], dim=-1)
+        k_rot = torch.cat([k_t, k_h, k_w], dim=-1)
+
+        <span class="c-kw">return</span> q_rot, k_rot</pre>
+
+<p>
+  First we extract the token positions.
+  Then we look up the correct cosine and sine values for time, height, and width.
+</p>
+
+<p>
+  After that, we split the query and key into three chunks and rotate each chunk independently.
+</p>
+
+<p>
+  Example output:
+</p>
+
+<pre>q.shape = (1, 128, 64)
+k.shape = (1, 128, 64)
+pos_ids.shape = (1, 128, 3)
+
+q_rot.shape = (1, 128, 64)
+k_rot.shape = (1, 128, 64)</pre>
+
+<p>
+  Finally we concatenate them back together.
+</p>
+
+<h2>Step 7: Build the Position IDs</h2>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">make_3d_pos_ids</span>(
+    t: int,
+    h: int,
+    w: int,
+    device: torch.device = torch.device("cpu"),
+) -> torch.Tensor:
+    <span class="c-str">"""
+    Generate (T*H*W, 3) position ids for a video latent.
+    """</span>
+    t_grid = torch.arange(t, device=device)
+    h_grid = torch.arange(h, device=device)
+    w_grid = torch.arange(w, device=device)
+
+    grid_t, grid_h, grid_w = torch.meshgrid(t_grid, h_grid, w_grid, indexing="ij")
+
+    pos_ids = torch.stack([grid_t, grid_h, grid_w], dim=-1)
+    pos_ids = pos_ids.reshape(-1, 3)
+
+    <span class="c-kw">return</span> pos_ids.unsqueeze(0)</pre>
+
+<p>
+  This creates one <code>[t, h, w]</code> position triplet for every token in the video latent.
+  The output shape is <code>(1, N, 3)</code>, where <code>N = T × H × W</code>.
+</p>
+
+<p>
+  Example output:
+</p>
+
+<pre>make_3d_pos_ids(t=2, h=2, w=2)
+tensor([[[0, 0, 0],
+         [0, 0, 1],
+         [0, 1, 0],
+         [0, 1, 1],
+         [1, 0, 0],
+         [1, 0, 1],
+         [1, 1, 0],
+         [1, 1, 1]]])</pre>
+
+<h2>Why This Works So Well</h2>
+
+<p>
+  The attention score between two tokens now decomposes into independent relative positions along each axis.
+</p>
+
+<p>
+  That means the model can learn:
+</p>
+
+<ul>
+  <li>how far apart two tokens are in time</li>
+  <li>how far apart they are vertically</li>
+  <li>how far apart they are horizontally</li>
+</ul>
+
+<p>
+  This is exactly what video understanding needs.
+  Temporal structure and spatial structure should not be forced into the same single position axis.
+</p>
+
+
+
+
+
+ 
+<h2>Key Takeaways</h2>
+ 
+<ul>
+  <li>RoPE does not add position information, it encodes it through rotation</li>
+  <li>Different positions produce different phases, so position becomes geometry</li>
+  <li>Multiple frequencies prevent aliasing and give a richer positional fingerprint</li>
+  <li>For video, we extend RoPE to 3D by rotating time, height, and width separately</li>
+  <li>This lets the model reason independently about temporal distance and spatial distance</li>
 </ul>
     `
   },
