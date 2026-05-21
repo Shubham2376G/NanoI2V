@@ -4936,22 +4936,12 @@ dim_w = 24</pre>
   After that, we split the query and key into three chunks and rotate each chunk independently.
 </p>
 
-<p>
-  Example output:
-</p>
-
-<pre>q.shape = (1, 128, 64)
-k.shape = (1, 128, 64)
-pos_ids.shape = (1, 128, 3)
-
-q_rot.shape = (1, 128, 64)
-k_rot.shape = (1, 128, 64)</pre>
 
 <p>
-  Finally we concatenate them back together.
+  Finally, we concatenate them back together.
 </p>
 
-<h2>Step 7: Build the Position IDs</h2>
+<h2>Optional: Build the Position IDs</h2>
 
 <pre><span class="c-kw">def</span> <span class="c-fn">make_3d_pos_ids</span>(
     t: int,
@@ -5023,7 +5013,7 @@ tensor([[[0, 0, 0],
 <ul>
   <li>RoPE does not add position information, it encodes it through rotation</li>
   <li>Different positions produce different phases, so position becomes geometry</li>
-  <li>Multiple frequencies prevent aliasing and give a richer positional fingerprint</li>
+  <li>Multiple frequencies prevent aliasing and give a richer positional encoding</li>
   <li>For video, we extend RoPE to 3D by rotating time, height, and width separately</li>
   <li>This lets the model reason independently about temporal distance and spatial distance</li>
 </ul>
