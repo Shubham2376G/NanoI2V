@@ -5019,7 +5019,840 @@ tensor([[[0, 0, 0],
 </ul>
     `
   },
-  
+  {
+    title: "Cross Attention",
+    tag: "DiT",
+    subtitle: "",
+    body: `
+      <h2>Cross-Attention</h2>
+
+<p>
+  In LLMs, We have only text, So we usually use self-attention or multi-head self-attention.
+  Here, since we have different modalities, we will need a mechanism that allows different modalities to communicate with each other.</p>
+
+<div class="hero-image">
+    <img 
+        src="images/ca.png" 
+        alt="Cross-Attention"
+    />
+    <p class="caption">
+    Image by 
+    <a 
+        href="https://github.com/soran-ghaderi" 
+        target="_blank"
+        style="text-decoration: underline; color: inherit;"
+    >
+        author
+    </a>
+</p>
+</div>
+
+<p>
+  Let us build a small mental analogy first.
+  In an attention block, we have <strong>Q</strong>, <strong>K</strong>, and <strong>V</strong>.
+  You can think of:
+</p>
+
+<ul>
+  <li><strong>Q</strong> as the question being asked</li>
+  <li><strong>K</strong> as the possible answers that help match the question</li>
+  <li><strong>V</strong> as the actual content or context we want to retrieve</li>
+</ul>
+
+
+<h2>One Possible Approach: Concatenate Everything</h2>
+
+<p> One way to do it is by concatinating all the token stream into one and then simply apply normal self-attention over the entire sequence.</p>
+
+<p> Its actually a good way and infact many big multimodel out there uses this method too </p>
+
+<p> But our case is different  </p>
+
+<p>
+  here in self-attention, after we concatinate all the stream tokens, every token can look at every other token inside that stream.
+</p>
+
+<ul>
+  <li>text sees image</li>
+  <li>image sees text</li>
+    <li>image sees video</li>
+      <li>text sees video</li>
+</ul>
+
+<p>
+  both ways simultaneously. This is symmetric interaction.
+</p>
+
+
+<h2>The Problem</h2>
+
+<p>
+  In diffusion generation, we do NOT want all streams influencing each other equally.
+</p>
+
+<p>
+  We specifically want:
+</p>
+
+<pre>
+text/image conditioning → influence video generation
+</pre>
+
+<p>
+  but we do NOT want:
+</p>
+
+<pre>
+video stream → modifying text/image conditioning
+</pre>
+
+<p>
+  because the conditioning acts like an anchor.
+</p>
+
+
+
+<p>
+  For Example; The prompt:
+</p>
+
+<pre>
+  “a red dragon flying in the sky”
+</pre>
+
+<p>
+  should remain stable during generation.
+</p>
+
+<p>
+  We want the video to adapt to the prompt,
+  not the prompt to adapt to the video.
+</p>
+
+<p>
+  So we need:
+</p>
+
+<ul>
+  <li>one stream that stays stable</li>
+  <li>another stream that gets updated using it</li>
+</ul>
+
+<p>
+  This is exactly what cross-attention gives us.
+</p>
+
+<h2>Cross-Attention</h2>
+
+<p>
+  In cross-attention:
+</p>
+
+<pre>
+Q comes from one source
+K,V come from another source
+</pre>
+
+<p>
+  unlike self-attention where all three come from the same sequence.
+</p>
+
+<p>
+  This gives us directional information flow.
+</p>
+
+
+
+<div class="callout">
+  <strong>Most important rule:</strong>
+  Attention updates the Queries.
+</div>
+
+<p> Read that again, that's the most game changing mental model here.</p>
+
+<p>
+  The output from attention always has the same shape as the query tensor.
+</p>
+
+<p>
+  So:
+</p>
+
+<pre>
+Q = the thing being updated
+K,V = the thing providing information
+</pre>
+
+<div class="callout">
+  <strong>Core intuition:</strong>
+  Queries ask questions.
+  Keys decide what matches.
+  Values provide the actual information.
+</div>
+
+<h2>Stable Diffusion Example</h2>
+
+<p>
+  In diffusion image generation, we usually use:
+</p>
+
+<pre>
+Q = image latents
+K,V = text embeddings
+</pre>
+
+<p>
+  So image tokens ask:
+</p>
+
+<blockquote>
+  “Which words are relevant to me?”
+</blockquote>
+
+<p>
+  Different image regions may attend to different words:
+</p>
+
+<ul>
+  <li>head regions attend to “dragon”</li>
+  <li>color-related regions attend to “red”</li>
+  <li>background regions attend to “sky”</li>
+</ul>
+
+<p>
+  The text embeddings stay fixed.
+  The image latents get updated.
+</p>
+
+<p>
+  That is exactly what we want:
+</p>
+
+<pre>
+image ← conditioned by text
+</pre>
+
+<h2>Why the Direction Matters</h2>
+
+<p>
+  Suppose we swap them:
+</p>
+
+<pre>
+Q = text
+K,V = image
+</pre>
+
+<p>
+  Now the text embeddings get updated using image information.
+</p>
+
+<p>
+  The text tokens are now asking:
+</p>
+
+<blockquote>
+  “What parts of the image are relevant to me?”
+</blockquote>
+
+<p>
+  That changes the task completely.
+</p>
+
+<p>
+  Instead of generation, this becomes useful for:
+</p>
+
+<ul>
+  <li>image captioning</li>
+  <li>visual question answering</li>
+  <li>multimodal reasoning</li>
+  <li>vision-language models</li>
+</ul>
+
+<p>
+  because now:
+</p>
+
+<pre>
+text ← conditioned by image
+</pre>
+
+<h2>Cross-Attention is Computationally Cheaper too!</h2>
+
+<p>
+  This is another massive reason cross-attention is used everywhere.
+</p>
+
+<p>
+  Full self-attention scales roughly like:
+</p>
+
+<pre>
+O(N²)
+</pre>
+
+<p>
+  because every token attends to every other token.
+</p>
+
+<p>
+  Suppose:
+</p>
+
+<ul>
+  <li>image tokens = 4096</li>
+  <li>text tokens = 77</li>
+</ul>
+
+<p>
+  If we concatenate everything:
+</p>
+
+<pre>
+total length = 4173
+</pre>
+
+<p>
+  attention matrix:
+</p>
+
+<pre>
+4173 × 4173
+</pre>
+
+<p>
+  which is expensive.
+</p>
+
+<p>
+  But cross-attention computes:
+</p>
+
+<pre>
+N_query × N_key
+</pre>
+
+<p>
+  so:
+</p>
+
+<pre>
+4096 × 77
+</pre>
+
+<p>
+  which is dramatically smaller.
+</p>
+
+<div class="callout">
+  <strong>Summary:</strong>
+  Cross-attention is often cheaper because conditioning sequences
+  like text are usually much shorter than image/video sequences.
+</div>
+
+<h2>When Unified Self-Attention is Better?</h2>
+
+<p>
+  Cross-attention is not always the best solution.
+</p>
+
+<p>
+  Some architectures intentionally use giant unified self-attention instead.
+</p>
+
+<p>
+  Example:
+</p>
+
+<pre>
+[text][image][audio]
+</pre>
+
+<p>
+  all inside one transformer.
+</p>
+
+<p>
+  This is common in:
+</p>
+
+<ul>
+  <li>multimodal LLMs</li>
+  <li>vision-language transformers</li>
+  <li>general multimodal reasoning systems</li>
+</ul>
+
+<p>
+  because those systems benefit from:
+</p>
+
+<ul>
+  <li>deep bidirectional fusion</li>
+  <li>all modalities influencing each other</li>
+</ul>
+
+<p>
+  So the choice depends on the task.
+</p>
+
+<h2>Cross-Attention in Our DiT</h2>
+
+<p>
+  Now let us connect this directly to our implementation.
+</p>
+
+<p>
+  In our DiT:
+</p>
+
+<pre>
+Q = video tokens
+K,V = conditioning tokens
+</pre>
+
+<p>
+  where conditioning includes:
+</p>
+
+<ul>
+  <li>text embeddings</li>
+  <li>reference image embeddings</li>
+</ul>
+
+<p>
+  So the video tokens are the thing being updated.
+</p>
+
+<p>
+  The conditioning tokens stay fixed and guide generation.
+</p>
+
+<h2>Code Implementation</h2>
+
+<span class="code-label">dit/attention.py</span>
+
+<pre><span class="c-kw">import</span> torch
+<span class="c-kw">import</span> torch.nn <span class="c-kw">as</span> nn
+<span class="c-kw">import</span> torch.nn.functional <span class="c-kw">as</span> F
+<span class="c-kw">from</span> dit.rope <span class="c-kw">import</span> RoPE3D, make_3d_pos_ids
+
+
+<span class="c-cm"># ─────────────────────────────────────────────</span>
+<span class="c-cm"># Multi-head Self-Attention with 3D RoPE</span>
+<span class="c-cm"># ─────────────────────────────────────────────</span>
+
+<span class="c-kw">class</span> <span class="c-fn">SelfAttention3D</span>(nn.Module):
+    <span class="c-str">"""
+    Full 3D self-attention over video tokens.
+
+    Every token attends to every other token
+    across space and time simultaneously.
+
+    Features:
+        - 3D Rotary Position Embeddings (RoPE)
+        - Flash Attention via scaled_dot_product_attention
+        - QK-normalization for stability at scale
+        - Fused QKV projection for efficiency
+    """</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(
+        self,
+        hidden_dim: int,
+        num_heads: int,
+        dropout: float = <span class="c-num">0.0</span>,
+        rope: RoPE3D = <span class="c-kw">None</span>,
+        qk_norm: bool = <span class="c-kw">True</span>,
+    ):
+        <span class="c-kw">super</span>().<span class="c-fn">__init__</span>()
+
+        <span class="c-kw">assert</span> hidden_dim % num_heads == <span class="c-num">0</span>, \
+            <span class="c-str">f"hidden_dim {hidden_dim} must be divisible by num_heads {num_heads}"</span>
+
+        self.hidden_dim = hidden_dim
+        self.num_heads  = num_heads
+        self.head_dim   = hidden_dim // num_heads
+        self.dropout    = dropout
+        self.rope       = rope
+
+        <span class="c-cm"># Fused QKV projection:</span>
+        <span class="c-cm"># (B, N, D) → (B, N, 3D)</span>
+        self.qkv_proj = nn.Linear(hidden_dim, <span class="c-num">3</span> * hidden_dim, bias=<span class="c-kw">False</span>)
+
+        <span class="c-cm"># Final output projection</span>
+        self.out_proj = nn.Linear(hidden_dim, hidden_dim, bias=<span class="c-kw">False</span>)
+
+        <span class="c-cm"># QK-normalization stabilizes attention logits</span>
+        <span class="c-cm"># especially in large diffusion transformers</span>
+        <span class="c-cm"># Used in SD3, FLUX, Wan2.1</span>
+        <span class="c-kw">if</span> qk_norm:
+            self.q_norm = nn.RMSNorm(self.head_dim)
+            self.k_norm = nn.RMSNorm(self.head_dim)
+        <span class="c-kw">else</span>:
+            self.q_norm = nn.Identity()
+            self.k_norm = nn.Identity()
+
+    <span class="c-kw">def</span> <span class="c-fn">forward</span>(
+        self,
+        x: torch.Tensor,
+        pos_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        <span class="c-str">"""
+        Args:
+            x:
+                (B, N, D)
+                Video token embeddings
+
+            pos_ids:
+                (B, N, 3)
+                3D token positions [t, h, w]
+
+        Returns:
+            (B, N, D)
+            Updated token representations
+        """</span>
+
+        B, N, D = x.shape
+
+        <span class="c-cm"># ── 1. Compute QKV projections ─────────────────────────────</span>
+
+        qkv = self.qkv_proj(x)                 <span class="c-cm"># (B, N, 3D)</span>
+        q, k, v = qkv.chunk(<span class="c-num">3</span>, dim=-<span class="c-num">1</span>)   <span class="c-cm"># each: (B, N, D)</span>
+
+        <span class="c-cm"># ── 2. Split into attention heads ─────────────────────────</span>
+
+        <span class="c-kw">def</span> <span class="c-fn">reshape_heads</span>(t):
+            <span class="c-kw">return</span> t.view(
+                B,
+                N,
+                self.num_heads,
+                self.head_dim
+            ).transpose(<span class="c-num">1</span>, <span class="c-num">2</span>)
+
+        q = reshape_heads(q)   <span class="c-cm"># (B, heads, N, head_dim)</span>
+        k = reshape_heads(k)
+        v = reshape_heads(v)
+
+        <span class="c-cm"># ── 3. Normalize Q and K before RoPE ─────────────────────</span>
+
+        q = self.q_norm(q)
+        k = self.k_norm(k)
+
+        <span class="c-cm"># ── 4. Apply 3D Rotary Position Embeddings ───────────────</span>
+
+        <span class="c-kw">if</span> self.rope <span class="c-kw">is not</span> <span class="c-kw">None</span>:
+            q, k = self.rope(q, k, pos_ids)
+
+        <span class="c-cm"># ── 5. Flash Attention ───────────────────────────────────</span>
+
+        <span class="c-cm"># PyTorch automatically dispatches to Flash Attention</span>
+        <span class="c-cm"># kernels when supported by hardware/backend.</span>
+        <span class="c-cm"># Scaling by 1/sqrt(head_dim) is handled internally.</span>
+
+        out = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            dropout_p=self.dropout <span class="c-kw">if</span> self.training <span class="c-kw">else</span> <span class="c-num">0.0</span>,
+        )
+
+        <span class="c-cm"># out: (B, heads, N, head_dim)</span>
+
+        <span class="c-cm"># ── 6. Merge attention heads ─────────────────────────────</span>
+
+        out = out.transpose(<span class="c-num">1</span>, <span class="c-num">2</span>).contiguous().view(B, N, D)
+
+        <span class="c-cm"># ── 7. Final projection ──────────────────────────────────</span>
+
+        <span class="c-kw">return</span> self.out_proj(out)
+
+
+<span class="c-cm"># ─────────────────────────────────────────────</span>
+<span class="c-cm"># Cross-Attention</span>
+<span class="c-cm"># ─────────────────────────────────────────────</span>
+
+<span class="c-kw">class</span> <span class="c-fn">CrossAttention</span>(nn.Module):
+    <span class="c-str">"""
+    Cross-attention between video tokens and conditioning tokens.
+
+    Attention pattern:
+        Queries → video tokens
+        Keys    → conditioning tokens
+        Values  → conditioning tokens
+
+    Typical conditioning sources:
+        - text encoder embeddings
+        - image encoder embeddings
+        - multimodal embeddings
+
+    No RoPE is applied because conditioning tokens do not
+    live in a structured 3D spatiotemporal grid.
+    """</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(
+        self,
+        hidden_dim: int,
+        cond_dim: int,
+        num_heads: int,
+        dropout: float = <span class="c-num">0.0</span>,
+        qk_norm: bool = <span class="c-kw">True</span>,
+    ):
+        <span class="c-kw">super</span>().<span class="c-fn">__init__</span>()
+
+        <span class="c-kw">assert</span> hidden_dim % num_heads == <span class="c-num">0</span>
+
+        self.hidden_dim = hidden_dim
+        self.num_heads  = num_heads
+        self.head_dim   = hidden_dim // num_heads
+        self.dropout    = dropout
+
+        <span class="c-cm"># Query projection from video tokens</span>
+        self.q_proj = nn.Linear(hidden_dim, hidden_dim, bias=<span class="c-kw">False</span>)
+
+        <span class="c-cm"># Key/Value projections from conditioning tokens</span>
+        self.k_proj = nn.Linear(cond_dim, hidden_dim, bias=<span class="c-kw">False</span>)
+        self.v_proj = nn.Linear(cond_dim, hidden_dim, bias=<span class="c-kw">False</span>)
+
+        <span class="c-cm"># Final projection</span>
+        self.out_proj = nn.Linear(hidden_dim, hidden_dim, bias=<span class="c-kw">False</span>)
+
+        <span class="c-cm"># Optional QK-normalization</span>
+        <span class="c-kw">if</span> qk_norm:
+            self.q_norm = nn.RMSNorm(self.head_dim)
+            self.k_norm = nn.RMSNorm(self.head_dim)
+        <span class="c-kw">else</span>:
+            self.q_norm = nn.Identity()
+            self.k_norm = nn.Identity()
+
+    <span class="c-kw">def</span> <span class="c-fn">forward</span>(
+        self,
+        x: torch.Tensor,
+        c: torch.Tensor,
+    ) -> torch.Tensor:
+        <span class="c-str">"""
+        Args:
+            x:
+                (B, N_video, D)
+                Video token embeddings
+
+            c:
+                (B, N_cond, cond_dim)
+                Conditioning token embeddings
+
+        Returns:
+            (B, N_video, D)
+            Conditioned video representations
+        """</span>
+
+        B, N_video, _ = x.shape
+        N_cond = c.shape[<span class="c-num">1</span>]
+
+        <span class="c-cm"># ── 1. Project Q, K, V ───────────────────────────────────</span>
+
+        q = self.q_proj(x)   <span class="c-cm"># (B, N_video, D)</span>
+        k = self.k_proj(c)   <span class="c-cm"># (B, N_cond,  D)</span>
+        v = self.v_proj(c)   <span class="c-cm"># (B, N_cond,  D)</span>
+
+        <span class="c-cm"># ── 2. Reshape into multi-head format ────────────────────</span>
+
+        <span class="c-kw">def</span> <span class="c-fn">reshape_heads</span>(t, N):
+            <span class="c-kw">return</span> t.view(
+                B,
+                N,
+                self.num_heads,
+                self.head_dim
+            ).transpose(<span class="c-num">1</span>, <span class="c-num">2</span>)
+
+        q = reshape_heads(q, N_video)
+        k = reshape_heads(k, N_cond)
+        v = reshape_heads(v, N_cond)
+
+        <span class="c-cm"># ── 3. Normalize Q and K ─────────────────────────────────</span>
+
+        q = self.q_norm(q)
+        k = self.k_norm(k)
+
+        <span class="c-cm"># ── 4. Cross-attention ───────────────────────────────────</span>
+
+        <span class="c-cm"># Video queries attend to conditioning keys/values</span>
+
+        out = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            dropout_p=self.dropout <span class="c-kw">if</span> self.training <span class="c-kw">else</span> <span class="c-num">0.0</span>,
+        )
+
+        <span class="c-cm"># out: (B, heads, N_video, head_dim)</span>
+
+        <span class="c-cm"># ── 5. Merge attention heads ─────────────────────────────</span>
+
+        out = out.transpose(<span class="c-num">1</span>, <span class="c-num">2</span>).contiguous().view(
+            B,
+            N_video,
+            self.head_dim * self.num_heads
+        )
+
+        <span class="c-cm"># ── 6. Final projection ──────────────────────────────────</span>
+
+        <span class="c-kw">return</span> self.out_proj(out)
+</pre>
+
+
+<h2>Why No RoPE in Cross-Attention?</h2>
+
+<p>
+  In self-attention over video tokens, we used 3D RoPE because:
+</p>
+
+<ul>
+  <li>video tokens have spatial positions</li>
+  <li>video tokens have temporal positions</li>
+</ul>
+
+<p>
+  But text tokens do not live inside:
+</p>
+
+<pre>
+(t, h, w)
+</pre>
+
+<p>
+  video space.
+</p>
+
+<p>
+  So in cross-attention, we usually do NOT apply 3D RoPE to conditioning tokens.
+</p>
+
+
+<h2>Potential Questions</h2>
+
+<h3>Q: How do we know the Query is the one being updated in attention?</h3>
+
+<p>
+Because the output contains one vector per query position,
+so the output shape matches the query shape.
+</p>
+
+<p>
+$$
+\\mathrm{Attention}(Q,K,V)
+=
+\\mathrm{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V
+$$
+</p>
+
+<p>
+$$
+Q \\in \\mathbb{R}^{n_q \\times d_k},
+\\quad
+K \\in \\mathbb{R}^{n_k \\times d_k},
+\\quad
+V \\in \\mathbb{R}^{n_k \\times d_v}
+$$
+</p>
+
+<p>
+$$
+QK^T :
+(n_q \\times d_k)(d_k \\times n_k)
+=
+n_q \\times n_k
+$$
+</p>
+
+<p>
+$$
+\\mathrm{softmax}(QK^T)V :
+(n_q \\times n_k)(n_k \\times d_v)
+=
+n_q \\times d_v
+$$
+</p>
+
+<p>
+The final output has \\(n_q\\) rows; one output vector for each query.
+Hence attention updates queries.
+</p>
+
+<h3>Q: Does cross-attention replace self-attention?</h3>
+
+<p>
+  No.
+  Most architectures use both.
+</p>
+
+<p>
+  Self-attention handles internal communication within a modality.
+  Cross-attention injects external conditioning information.
+</p>
+
+<h3>Q: Why not always use bidirectional attention?</h3>
+
+<p>
+  Because sometimes you want one stream to remain stable.
+</p>
+
+<p>
+  In diffusion:
+</p>
+
+<pre>
+prompt = stable anchor
+image = evolving latent
+</pre>
+
+<p>
+  so one-way conditioning is cleaner and more stable.
+</p>
+
+<h3>Q: Which modality should be Queries?</h3>
+
+<p>
+  Usually, the modality being generated or updated should be the queries.
+</p>
+
+<h3>Q: Why is the prompt not used as the query in diffusion?</h3>
+
+<p>
+  Because we usually want the prompt to stay fixed.
+  The image or video should adapt to it, not the other way around.
+</p>
+
+<h3>Q: Can cross-attention be used for captioning?</h3>
+
+<p>
+  Yes.
+  In that case, the text stream is usually the query side, and the visual features provide keys and values.
+</p>
+
+
+<h2>Key Takeaways</h2>
+
+<ul>
+  <li>Self-attention is symmetric, cross-attention is directional</li>
+  <li>The query stream is the stream being updated</li>
+  <li>Diffusion models usually use:
+    <pre>Q = image/video, K,V = text</pre>
+  </li>
+  <li>Vision-language models often use:
+    <pre>Q = text, K,V = image</pre>
+  </li>
+  <li>Cross-attention is often much cheaper than concatenated self-attention</li>
+</ul>
+
+
+
+
+
+<div class="callout">
+  <strong>Final intuition:</strong>
+  cross-attention is how one modality asks another modality for help.
+</div>
+    `
+  },
 ];
 
 let current = 0;
