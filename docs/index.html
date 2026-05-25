@@ -772,6 +772,18 @@ const lessons = [
 
       <samp class="nota">[t-2, t-1, t]</samp>
 
+
+      <div class="hero-image">
+    <img 
+        src="images/cc3d.png" 
+        alt="Causal Conv3D"
+    />
+    <p class="caption">
+        Causal Conv3D
+    </p>
+    </div>
+
+
       <h2>Temporal Padding</h2>
       <p>At the beginning of the sequence (<code>t = 0</code>), there are no previous frames, so we pad the beginning of the video along the temporal dimension:</p>
 
@@ -1025,6 +1037,17 @@ Now other things are there to stablity the gradient flow and it introduce nonlin
     tag: "VAE",
     subtitle: "How video VAEs handle high-resolution videos efficiently.",
     body: `
+
+    <div class="hero-image">
+    <img 
+        src="images/ud.png" 
+        alt="Upsampling and Downsampling"
+    />
+    <p class="caption">
+
+    </p>
+    </div>
+
     <p>Now we are gonna talk about one of the most important ideas in video generation architectures:</p>
       <samp class="nota">How do we process high-resolution videos without exploding compute?</samp>
 
