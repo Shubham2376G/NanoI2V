@@ -5890,7 +5890,7 @@ image = evolving latent
   injects conditioning using cross-attention, and slowly transforms noisy latent tokens into something meaningful.
 </p>
 
-<p> Before we start all this, we need to do some preprocessing steps and a new concept. </p>
+<p> Before we start all this, we need to do some preprocessing steps and learn a new concept. </p>
 
 <h2>Convert the timestep into a vector form</h2>
 
@@ -5910,7 +5910,7 @@ t = 0.98  → almost pure noise
 </pre>
 
 <p>
-  But a single scalar can contain enough information about "how much noise there is".So we need to convert this one number into a rich embedding which can contain information about the noise level
+  But a single scalar can contain enough information about "how much noise there is". So we need to convert this one number into a rich embedding which can contain information about the noise level
 </p>
 
 <p>
@@ -6006,52 +6006,18 @@ t  →  sinusoidal features  →  MLP  →  timestep vector
 
 
 <div class="callout">
-  <strong>Note:</strong> We use a MLP layer here too because this timestep vector is not for just providing the position or the time step, it acts as a conditioning agent too, it needs to tell the noise information to the video latent at every step
+  <strong>Note:</strong> We use a MLP layer here too because this timestep vector is not for just providing the position or the time step, it acts as a conditioning agent too, it needs to tell the noise information to the video latent at every step. Thus MLP helps in making this vector more information rich.
 </div>
 
 
 <p>
   The sinusoidal part gives structure.
   The MLP makes it more information rich.
-</p>
-
-<p>
   This final vector will be used as conditioning in the DiT block.
 </p>
 
+
 <h2>AdaLN (Adaptive Layer Normalization)</h2>
-
-<p>
-  Now that we have a timestep vector, the next question is:
-  how do we inject it into the transformer block?
-</p>
-
-<p>
-  We could just add it somewhere.
-  But that would be too weak.
-</p>
-
-<p>
-  In a DiT block, conditioning must influence <strong>every major sub-block</strong>:
-</p>
-
-<ul>
-  <li>self-attention</li>
-  <li>cross-attention</li>
-  <li>feed-forward network</li>
-</ul>
-
-<p>
-  This is exactly what <code>adaLN</code> does.
-</p>
-
-<p>
-  <code>adaLN</code> stands for <strong>adaptive LayerNorm</strong>.
-  It predicts scale, shift, and gate values from the conditioning signal,
-  then uses them to do adaptive conditioning to the hidden states.
-</p>
-
-<h2>AdaLN Modulation</h2>
 
 <pre><span class="c-kw">class</span> <span class="c-fn">AdaLNModulation</span>(nn.Module):
 </pre>
@@ -6062,7 +6028,7 @@ t  →  sinusoidal features  →  MLP  →  timestep vector
 </p>
 
 <p>
-  How and where do we inject this information into the transformer block?
+  How and where do we inject this conditioning into our block?
 </p>
 
 <p>
@@ -6231,6 +6197,20 @@ adaLN     → reinterprets them using conditioning
 
 <h2>Now let us look at the full DiT block</h2>
 
+<div class="hero-image">
+    <img 
+        src="images/ditblock.png" 
+        alt="DiT block Architecture"
+    />
+    <p class="caption">
+        DiT block Architecture
+    </p>
+    </div>
+
+<p>
+  Believe me its not that complicated as it looks. FIrst row is our inputs, second row is where we will preprocess our inputs which we will cover in conditioning lecture. Now we begin with DiT block.
+</p>
+
 <p>
   The DiT block has three main sub-blocks:
 </p>
@@ -6244,23 +6224,22 @@ adaLN     → reinterprets them using conditioning
 <p>
   Each one gets its own adaLN modulation.
   So the conditioning is not injected once
-  It is injected separately where it matters.
+  It is injected separately and multiple times
 </p>
 
-<h2>Block Overview</h2>
-
-<pre>
-x → adaLN → Self-Attention  → residual
-x → adaLN → Cross-Attention → residual
-x → adaLN → FFN             → residual
-</pre>
-
-<p>
-  This is the basic flow.
-  Now let us break it down.
-</p>
 
 <h2>Block 1: Self-Attention</h2>
+
+<div class="hero-image">
+    <img 
+        src="images/b1.png" 
+        alt="DiT block Architecture"
+    />
+    <p class="caption">
+
+    </p>
+    </div>
+
 
 <pre>
 γ1, β1, α1 = self.ada1(c)
@@ -6278,6 +6257,16 @@ x = x + α1 * self.self_attn(modulate(self.norm1(x), γ1, β1), pos_ids)
 
 
 <h2>Block 2 Cross-Attention</h2>
+
+<div class="hero-image">
+    <img 
+        src="images/b2.png" 
+        alt="DiT block Architecture"
+    />
+    <p class="caption">
+
+    </p>
+    </div>
 
 <pre>
 γ2, β2, α2 = self.ada2(c)
@@ -6305,6 +6294,16 @@ x = x + α2 * self.cross_attn(modulate(self.norm2(x), γ2, β2), cond_tokens)
 
 
 <h2>Block 3 Feed-Forward Network</h2>
+
+<div class="hero-image">
+    <img 
+        src="images/b3.png" 
+        alt="DiT block Architecture"
+    />
+    <p class="caption">
+
+    </p>
+    </div>
 
 <pre>
 γ3, β3, α3 = self.ada3(c)
