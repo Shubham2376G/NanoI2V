@@ -1,10 +1,30 @@
 # NanoI2V: Building an Image-to-Video Model from Scratch
 
-Over the past few months, I moved from coding LLMs to working on diffusion-based video generation models, inspired by architectures like WAN, CogVideoX, and modern open-source video systems.
+<p align="center">
+  <img src="docs/images/i2v.png" width="100%">
+</p>
 
-These models generate coherent video from a single image - producing motion, temporal consistency, camera dynamics, and cinematic output. But how do they actually work under the hood?
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10-blue">
+  <img src="https://img.shields.io/badge/PyTorch-2.0-red">
+  <img src="https://img.shields.io/badge/Transformers-DiT-purple">
+  <img src="https://img.shields.io/badge/License-MIT-green">
+  <img src="https://img.shields.io/github/stars/Shubham2376G/NanoI2V">
+</p>
 
-This repository is a step-by-step series where we build every core component of a modern I2V pipeline from scratch.
+# Overview
+
+NanoI2V is a **from-scratch implementation** of an **Image-to-Video (I2V)** generation pipeline.
+
+The project focuses on understanding and implementing the core concepts and building blocks behind modern video generation systems such as:
+
+- Variational Autoencoders (VAE)
+- Latent Video Modeling
+- Diffusion / Flow Matching
+- DiT Transformers
+- Cross-Attention Conditioning
+- Classifier-Free-Guidance
+
 
 ---
 

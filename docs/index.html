@@ -5020,6 +5020,7 @@ tensor([[[0, 0, 0],
     `
   },
   {
+
     title: "Cross Attention",
     tag: "DiT",
     subtitle: "",
@@ -5850,6 +5851,530 @@ image = evolving latent
   <strong>Final intuition:</strong>
   cross-attention is how one modality asks another modality for help.
 </div>
+    `
+  },
+  {
+    title: "DiT Block",
+    tag: "DiT",
+    subtitle: "",
+    body: `
+<p>
+  Now we are finally at the heart of the DiT model: The <strong>DiT Block</strong>.
+</p>
+
+<p>
+  It takes the video tokens, mixes information across space and time using self-attention,
+  injects conditioning using cross-attention, and slowly transforms noisy latent tokens into something meaningful.
+</p>
+
+<p> Before we start all this, we need to do some preprocessing steps and a new concept. </p>
+
+<h2>Convert the timestep into a vector form</h2>
+
+<p>
+  Right now we have t as [n,] where n is number of steps, if you remember , from previous lecture , we used normal logit sampling.
+  The purpose of it is to tell the model <em>how noisy</em> the current intermitiate input is.
+</p>
+
+<p>
+  For example:
+</p>
+
+<pre>
+t = 0.02  → almost clean
+t = 0.50  → medium noise
+t = 0.98  → almost pure noise
+</pre>
+
+<p>
+  But a single scalar can contain enough information about "how much noise there is".So we need to convert this one number into a rich embedding which can contain information about the noise level
+</p>
+
+<p>
+  To do that, we use <code>TimestepEmbedder</code>.
+  It converts <code>t</code> into a learned vector representation that can guide the video latent.
+</p>
+
+<h2>TimestepEmbedder</h2>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">TimestepEmbedder</span>(nn.Module):
+    <span class="c-str">"""
+    Embeds scalar timestep t ∈ [0,1] into a vector.
+    Uses sinusoidal embedding followed by a small MLP.
+    """</span>
+
+    <span class="c-kw">def</span> <span class="c-fn">__init__</span>(self, hidden_dim: int, freq_dim: int = <span class="c-num">256</span>):
+        <span class="c-fn">super</span>().__init__()
+        <span class="c-kw">assert</span> freq_dim % <span class="c-num">2</span> == <span class="c-num">0</span>, <span class="c-str">"freq_dim must be even"</span>
+
+        self.freq_dim = freq_dim
+
+        self.mlp = nn.Sequential(
+            nn.Linear(freq_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+
+    <span class="c-de">@staticmethod</span>
+    <span class="c-kw">def</span> <span class="c-fn">sinusoidal_embedding</span>(t: torch.Tensor, dim: int) -> torch.Tensor:
+        <span class="c-str">"""
+        t: (B,)
+        embeddings: (B, dim)
+        """</span>
+
+        <span class="c-kw">assert</span> dim % <span class="c-num">2</span> == <span class="c-num">0</span>
+
+        device = t.device
+        half = dim // <span class="c-num">2</span>
+
+        i = torch.arange(half, device=device).float()
+        theta = torch.exp(
+            -i * (torch.log(torch.tensor(<span class="c-num">10000.0</span>)) / (half - <span class="c-num">1</span>))
+        )
+
+        args = t[:, <span class="c-kw">None</span>] * theta[<span class="c-kw">None</span>, :] * <span class="c-num">1000.0</span>
+
+        embedding = torch.cat([args.sin(), args.cos()], dim=-<span class="c-num">1</span>)
+
+        <span class="c-kw">return</span> embedding
+
+    <span class="c-kw">def</span> <span class="c-fn">forward</span>(self, t: torch.Tensor) -> torch.Tensor:
+        <span class="c-str">"""
+        t: (B,)
+        Returns: (B, hidden_dim)
+        """</span>
+
+        sincos = self.sinusoidal_embedding(t, self.freq_dim)
+
+        <span class="c-kw">return</span> self.mlp(sincos)</pre>
+
+<p>
+  The first step is sinusoidal embedding.
+  This is very similar to primitive transformer positional encoding.
+</p>
+
+<p>
+$$
+PE_{(pos,\\,2i)}
+=
+\\sin\\left(
+\\frac{pos}{10000^{\\frac{2i}{d_{\\text{model}}}}}
+\\right)
+$$
+</p>
+
+<p>
+$$
+PE_{(pos,\\,2i+1)}
+=
+\\cos\\left(
+\\frac{pos}{10000^{\\frac{2i}{d_{\\text{model}}}}}
+\\right)
+$$
+</p>
+
+<p>
+  So the scalar timestep becomes something like:
+</p>
+
+<pre>
+t  →  sinusoidal features  →  MLP  →  timestep vector
+</pre>
+
+
+<div class="callout">
+  <strong>Note:</strong> We use a MLP layer here too because this timestep vector is not for just providing the position or the time step, it acts as a conditioning agent too, it needs to tell the noise information to the video latent at every step
+</div>
+
+
+<p>
+  The sinusoidal part gives structure.
+  The MLP makes it more information rich.
+</p>
+
+<p>
+  This final vector will be used as conditioning in the DiT block.
+</p>
+
+<h2>AdaLN (Adaptive Layer Normalization)</h2>
+
+<p>
+  Now that we have a timestep vector, the next question is:
+  how do we inject it into the transformer block?
+</p>
+
+<p>
+  We could just add it somewhere.
+  But that would be too weak.
+</p>
+
+<p>
+  In a DiT block, conditioning must influence <strong>every major sub-block</strong>:
+</p>
+
+<ul>
+  <li>self-attention</li>
+  <li>cross-attention</li>
+  <li>feed-forward network</li>
+</ul>
+
+<p>
+  This is exactly what <code>adaLN</code> does.
+</p>
+
+<p>
+  <code>adaLN</code> stands for <strong>adaptive LayerNorm</strong>.
+  It predicts scale, shift, and gate values from the conditioning signal,
+  then uses them to do adaptive conditioning to the hidden states.
+</p>
+
+<h2>AdaLN Modulation</h2>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">AdaLNModulation</span>(nn.Module):
+</pre>
+
+<p>
+  Now that we have a conditioning vector from the timestep, prompt and reference image (encoded),
+  the next question is:
+</p>
+
+<p>
+  How and where do we inject this information into the transformer block?
+</p>
+
+<p>
+  We could just add it in the beginning.
+  But that would be too weak, plus we don't want same conditioning at every point. at high noise we want different conditioning and at low noise we want another.
+</p>
+
+<p>
+  So to do that, DiT uses something much stronger called <strong>Adaptive Layer Normalization (adaLN)</strong>.
+</p>
+
+<p>
+  adaLN allows the conditioning signal to control how the transformer processes the noise latent.
+</p>
+
+<p>
+  For each sub-block, adaLN predicts three things:
+</p>
+
+<pre>
+γ  → scale
+β  → shift
+α  → residual gate
+</pre>
+
+<p>
+  These values are generated from the conditioning vector and are used to modulate the video hidden states.
+</p>
+
+<p>
+  In simple words:
+</p>
+
+<pre>
+conditioning → decides how the block should behave
+</pre>
+
+<h3>1. γ: scale</h3>
+
+<p>
+  Scale controls how important each feature should be.
+</p>
+
+<p>
+  Some features get amplified.
+  Some features get suppressed.
+</p>
+
+<p>
+  For example:
+</p>
+
+<ul>
+  <li>At high noise levels, the model may amplify coarse scene structure like sky</li>
+  <li>At low noise levels, it may amplify fine details like textures or facial features</li>
+</ul>
+
+<p>
+  So γ helps the model decide:
+</p>
+
+<pre>
+"What should I focus on right now?"
+</pre>
+
+<h3>2. β: shift</h3>
+
+<p>
+  Shift moves the normalized features up or down.
+</p>
+
+
+<p>
+  It helps the conditioning signal push the hidden representation toward a better region.
+</p>
+
+<p>
+  For example: Sky should be up , this animal towards right etc etc
+</p>
+
+<p>
+  In simple words:
+</p>
+
+<pre>
+γ → how much
+β → in which direction
+</pre>
+
+<h3>3. α: residual gate</h3>
+
+<p>
+  This one is very important.
+</p>
+
+<p>
+  α controls how much of the sub-block output should be added back into the residual stream.
+</p>
+
+<p>
+  Instead of doing:
+</p>
+
+<pre>
+x = x + sub_block_output
+</pre>
+
+<p>
+  we do:
+</p>
+
+<pre>
+x = x + α * sub_block_output
+</pre>
+
+<p>
+  This gives the model controlled residual updates,
+  which makes training much more stable.
+</p>
+
+<div class="callout">
+  <strong>Important:</strong> In adaLN-Zero, the modulation layers γ, β, α are initialized to zero.
+  So at the beginning of training, the transformer block behaves almost like an identity function. This help to stablise the training.
+</div>
+
+
+<h2>The Modulation Formula</h2>
+
+<pre>
+x_norm → x_norm * (1 + γ) + β
+</pre>
+
+<p>
+  This is what the <code>modulate</code> function does.
+</p>
+
+<p>
+  First we normalize the hidden states to create a stable feature space.
+</p>
+
+<p>
+  Then the conditioning signal reshapes those features using γ and β.
+</p>
+
+<p>
+  You can think of it like this:
+</p>
+
+<pre>
+LayerNorm → creates stable features
+adaLN     → reinterprets them using conditioning
+</pre>
+
+<p>
+  So the transformer block is no longer behaving the same way at every timestep.
+</p>
+
+<p>
+  At different noise levels,
+  the conditioning signal changes how the model processes information.
+</p>
+
+<p>
+  That is one of the key ideas behind DiT.
+</p>
+
+<h2>Now let us look at the full DiT block</h2>
+
+<p>
+  The DiT block has three main sub-blocks:
+</p>
+
+<pre>
+1. Self-Attention
+2. Cross-Attention
+3. Feed-Forward Network
+</pre>
+
+<p>
+  Each one gets its own adaLN modulation.
+  So the conditioning is not injected once
+  It is injected separately where it matters.
+</p>
+
+<h2>Block Overview</h2>
+
+<pre>
+x → adaLN → Self-Attention  → residual
+x → adaLN → Cross-Attention → residual
+x → adaLN → FFN             → residual
+</pre>
+
+<p>
+  This is the basic flow.
+  Now let us break it down.
+</p>
+
+<h2>Block 1: Self-Attention</h2>
+
+<pre>
+γ1, β1, α1 = self.ada1(c)
+x = x + α1 * self.self_attn(modulate(self.norm1(x), γ1, β1), pos_ids)
+</pre>
+
+<p>
+  Self-attention allows video tokens to talk to each other. We first want the model to understand the noise later before doing any conditioning.
+</p>
+
+
+<p>
+  We apply <code>RMSNorm</code> first because it helps training to stay stable in deep models.
+</p>
+
+
+<h2>Block 2 Cross-Attention</h2>
+
+<pre>
+γ2, β2, α2 = self.ada2(c)
+x = x + α2 * self.cross_attn(modulate(self.norm2(x), γ2, β2), cond_tokens)
+</pre>
+
+<p>
+  Now the Cross-attention modify the latent according to the conditioning tokens.
+</p>
+
+
+<p>
+  This is step where the model knows what it is supposed to generate.
+</p>
+
+<p>
+  For example:
+</p>
+
+<ul>
+  <li>the text may say <code>a red car moving through rain</code></li>
+  <li>the image condition may provide a reference frame</li>
+  <li>cross-attention helps the video stay aligned with both</li>
+</ul>
+
+
+<h2>Block 3 Feed-Forward Network</h2>
+
+<pre>
+γ3, β3, α3 = self.ada3(c)
+x = x + α3 * self.ffn(modulate(self.norm3(x), γ3, β3))
+</pre>
+
+<p>
+  After attention, we use the FFN Swiglu to do refining and add nonlinearity.
+</p>
+
+
+<h2>Why are there three separate adaLN modules?</h2>
+
+<p>
+  Because each sub-block needs a different kind of control.
+</p>
+
+<p>
+  Self-attention may need one modulation pattern.
+  Cross-attention may need another.
+  FFN may need another again.
+</p>
+
+<p>
+  So instead of forcing one shared modulation, we give each block its own AdaLN to give the model more flexibility.
+</p>
+
+<h2>Final Layer</h2>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">FinalLayer</span>(nn.Module):
+</pre>
+
+<p>
+  After all transformer blocks are done, we need to convert hidden states back into the output patch space.
+</p>
+
+<p>
+  That is the job of the final layer.
+</p>
+
+<pre>
+adaLN → Linear → patch output
+</pre>
+
+<p>
+  Again we use adaLN here because even the last projection should be conditioned.
+</p>
+
+<div class="callout">
+  <strong>Important:</strong> the final linear layer is initialized to zero.
+</div>
+
+<p>
+  Why?
+</p>
+
+<p>
+  Because at the beginning of training, we want the model to output something close to zero instead of making wild predictions.
+  This keeps training stable.
+</p>
+
+
+<p>
+  Now, If we compress the whole thing into one idea:
+</p>
+
+
+<p>
+  The block is not just processing tokens.
+  It is processing tokens while being continuously guided by the timestep and conditioning signal.
+</p>
+
+<h2>Why this design works</h2>
+
+<ul>
+  <li>The timestep embedding tells the model how noisy the input is</li>
+  <li>adaLN injects conditioning in a controlled way</li>
+  <li>self-attention builds global video understanding</li>
+  <li>cross-attention aligns the video with text or image conditions</li>
+  <li>FFN refines each token after attention its work</li>
+  <li>zero initialization keeps training stable in the beginning</li>
+</ul>
+
+<h2>Key Takeaways</h2>
+
+<ul>
+  <li>We convert timestep into a vector for better noise information understanding</li>
+  <li>adaLN lets conditioning control normalization, feature shift, and residual strength</li>
+  <li>self-attention helps video tokens communicate with each other</li>
+  <li>cross-attention helps the video listen to text or image conditioning</li>
+  <li>FFN adds nonlinear refinement after attention</li>
+  <li>the final layer projects hidden states back into output patch space in a stable way</li>
+</ul>
     `
   },
 ];
