@@ -6603,6 +6603,672 @@ adaLN → Linear → patch output
 </ul>
     `
   },
+  {
+  title: "Diffusion Transformers (DiTs)",
+  tag: "DiT",
+  subtitle: "",
+  body: `
+<p>
+  Now we are looking at the full model that brings everything together:
+  the <strong>DiT model</strong>.
+</p>
+
+<p>
+  This is the actual diffusion transformer that takes a noisy video latent,
+  mixes it with image conditioning, listens to text and image tokens,
+  and finally predicts the velocity field for generation.
+</p>
+
+
+<h2>The Main Idea</h2>
+
+<p>
+  Before jumping into code, let us see the flow:
+</p>
+
+<div class="hero-image">
+    <img 
+        src="images/dit.png" 
+        alt="IDiffusion Transformers"
+    />
+    <p class="caption">
+        Diffusion Transformer
+    </p>
+    </div>
+
+<div class="callout">
+  <strong>Note:</strong>
+  If you see here, we are giving images as tokens and latent both, this helps in giving more enriched context about the anchor frame
+</div>
+
+
+
+<h2>Input Structure</h2>
+
+<p>
+  The model receives:
+</p>
+
+<pre>
+z_t     → noisy video latent
+t       → timestep
+txt_tokens → T5 text tokens
+img_tokens → CLIP image tokens
+z_img   → image latent for I2V
+</pre>
+
+
+<p>
+  The noisy video latent is the thing we want to clean.
+  The timestep says how far along we are in the denoising process.
+  The text and image tokens guide the generation.
+  The image latent gives the model a strong visual reference.
+</p>
+
+
+
+
+
+<h2>Step 1: Weight Initialization</h2>
+
+<p>
+  Before the model starts learning anything,
+  we need to make sure it begins from a stable state.
+</p>
+
+<p>
+  In large transformer models, initialization matters a lot.
+  If the weights start too aggressively, training can become unstable very quickly.
+</p>
+
+
+<pre><span class="c-kw">def</span> <span class="c-fn">_init_weights</span>(self):
+    <span class="c-str">"""
+    Standard transformer init:
+        Linear layers: Xavier uniform
+        Embeddings: Normal(0, 0.02)
+        adaLN projections: already zeroed in AdaLNModulation
+        Final layer: already zeroed in FinalLayer
+    """</span>
+    <span class="c-kw">def</span> <span class="c-fn">_basic_init</span>(module):
+        <span class="c-kw">if</span> <span class="c-kw">isinstance</span>(module, nn.Linear):
+            nn.init.xavier_uniform_(module.weight)
+            <span class="c-kw">if</span> module.bias <span class="c-kw">is not</span> <span class="c-kw">None</span>:
+                nn.init.zeros_(module.bias)
+        <span class="c-kw">elif</span> <span class="c-kw">isinstance</span>(module, nn.Conv3d):
+            nn.init.xavier_uniform_(module.weight.view(module.weight.size(<span class="c-num">0</span>), <span class="c-kw">-1</span>))
+            <span class="c-kw">if</span> module.bias <span class="c-kw">is not</span> <span class="c-kw">None</span>:
+                nn.init.zeros_(module.bias)
+
+    self.apply(_basic_init)
+
+    <span class="c-cm"># Patch embed: slightly smaller init — it sees raw latents</span>
+    nn.init.normal_(self.patch_embed.weight, std=<span class="c-num">0.02</span>)
+
+    <span class="c-cm"># Timestep MLP</span>
+    nn.init.normal_(self.t_embedder.mlp[<span class="c-num">0</span>].weight, std=<span class="c-num">0.02</span>)
+    nn.init.normal_(self.t_embedder.mlp[<span class="c-num">2</span>].weight, std=<span class="c-num">0.02</span>)
+</pre>
+
+<p>
+  The idea here is simple:
+  start with safe values, then let training shape the model gradually.
+</p>
+
+<p>
+Xavier initialization is used for most linear and convolution layers, while the patch embedder and timestep MLP get a smaller normal initialization because they interact with raw latent inputs.
+</p>
+
+<p><strong>What do I mean by that?</strong></p>
+
+<p>
+Xavier initialization is designed to preserve variance across layers:
+</p>
+
+$$
+\\text{Var}(Wx) \\approx \\text{Var}(x)
+$$
+
+<p>
+This works well for most transformer blocks because they get already processed and normalized hidden representations.
+</p>
+
+<p>
+However, the patch embedder and timestep MLP are different. They directly interact with the raw diffusion inputs i.e unprocessed
+</p>
+
+<p>
+For diffusion input-facing layers, we often prefer:
+</p>
+
+$$
+\\text{Var}(Wx) < \\text{Var}(x)
+$$
+
+<p>
+during the early stages of training, so the model starts conservatively instead of aggressively propagating noise through the network.
+</p>
+
+<p>
+That is why DiT initializes the patch embedder and timestep MLP with an even smaller normal initialization than standard Xavier initialization.
+</p>
+
+<div class="callout">
+  <strong>Intuition:</strong>
+  good initialization does not make the model smart,
+  it makes the model trainable and converge faster.
+</div>
+
+<h2>Step 2: Patchify and Unpatchify</h2>
+
+<p>
+  The next thing we need is a way to move between video space and transformer space.
+</p>
+
+<p>
+  Transformers do not naturally operate on a 3D video grid.
+  They operate on token sequences.
+  So we convert the video latent into tokens first,
+  and then convert it back at the end.
+</p>
+
+<h3>Patchify</h3>
+
+<p>
+  <code>patchify</code> takes the video latent and splits it into non-overlapping 3D patches.
+  Each patch becomes one token.
+</p>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">patchify</span>(self, z: torch.Tensor) -&gt; torch.Tensor:
+    <span class="c-str">"""
+    Convert video latent into token sequence.
+
+    z: (B, C_in, T', H', W')
+    Returns: (B, N, hidden_dim)
+        N = num_t * num_h * num_w
+    """</span>
+    <span class="c-cm"># Conv3d with stride=patch_size does the patchification:</span>
+    <span class="c-cm"># Each (patch_t × patch_h × patch_w) block → one hidden_dim vector</span>
+    x = self.patch_embed(z)      <span class="c-cm"># (B, hidden_dim, num_t, num_h, num_w)</span>
+
+    <span class="c-cm"># Flatten spatial dims into sequence</span>
+    <span class="c-cm"># (B, D, T, H, W) → (B, D, N) → (B, N, D)</span>
+    B, D, T, H, W = x.shape
+    x = x.flatten(<span class="c-num">2</span>).transpose(<span class="c-num">1</span>, <span class="c-num">2</span>)   <span class="c-cm"># (B, N, D)</span>
+    <span class="c-kw">return</span> x
+</pre>
+
+<p>
+  Here the 3D convolution is doing the patch extraction for us.
+  Because the kernel size and stride are the same,
+  the patches do not overlap.
+</p>
+
+<p>
+  That means each token represents one local spatiotemporal chunk of the video.
+</p>
+
+<h3>Unpatchify</h3>
+
+<p>
+  <code>unpatchify</code> does the reverse.
+  It takes the token sequence and rebuilds the video latent.
+</p>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">unpatchify</span>(self, x: torch.Tensor) -&gt; torch.Tensor:
+    <span class="c-str">"""
+    Convert token sequence back into video latent.
+
+    x: (B, N, out_patch_dim)
+        out_patch_dim = latent_channels * patch_t * patch_h * patch_w
+    Returns: (B, latent_channels, T', H', W')
+    """</span>
+    B  = x.shape[<span class="c-num">0</span>]
+    pt, ph, pw = self.patch_t, self.patch_h, self.patch_w
+    C  = self.latent_channels
+
+    <span class="c-cm"># Reshape: (B, N, out_patch_dim) → (B, num_t, num_h, num_w, C, pt, ph, pw)</span>
+    x = x.view(B, self.num_t, self.num_h, self.num_w, C, pt, ph, pw)
+
+    <span class="c-cm"># Rearrange to (B, C, T', H', W'):</span>
+    <span class="c-cm"># T' = num_t * pt, H' = num_h * ph, W' = num_w * pw</span>
+    x = x.permute(<span class="c-num">0</span>, <span class="c-num">4</span>, <span class="c-num">1</span>, <span class="c-num">5</span>, <span class="c-num">2</span>, <span class="c-num">6</span>, <span class="c-num">3</span>, <span class="c-num">7</span>)
+    <span class="c-cm"># Now: (B, C, num_t, pt, num_h, ph, num_w, pw)</span>
+    x = x.contiguous().view(
+        B, C,
+        self.num_t * pt,
+        self.num_h * ph,
+        self.num_w * pw,
+    )
+    <span class="c-kw">return</span> x
+</pre>
+
+<div class="callout">
+  <strong>Important:</strong>
+  patchify turns video into tokens, and unpatchify turns tokens back into video.
+  This is the bridge between transformer space and latent video space.
+</div>
+
+<h2>Step 3: Build Conditioning</h2>
+
+<p>
+  Now we need to prepare the conditioning information.
+</p>
+
+<p>
+  DiT uses two different conditioning paths:
+</p>
+
+<ul>
+  <li><strong>c</strong> → a pooled conditioning vector for adaLN</li>
+  <li><strong>cond_tokens</strong> → a token sequence for cross-attention</li>
+</ul>
+
+
+<h3>Pooled conditioning for adaLN</h3>
+
+
+<pre>
+t_emb + txt_pool + img_pool = c
+</pre>
+
+<p>
+  This vector becomes the conditioning signal used by adaLN inside every DiT block.
+</p>
+
+<h3>Token conditioning for cross-attention</h3>
+
+<p>
+  For cross-attention, we keep the token sequence.
+  The text tokens stay as they are.
+  The image tokens are projected into the same dimension as text tokens,
+  and then both are concatenated.
+</p>
+
+<pre>
+cond_tokens = [txt_tokens, img_tokens_proj]
+</pre>
+
+<p>
+  This gives the transformer a richer conditioning stream.
+</p>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">build_conditioning</span>(
+    self,
+    t: torch.Tensor,           <span class="c-cm"># (B,)</span>
+    txt_tokens: torch.Tensor,  <span class="c-cm"># (B, L, text_dim)</span>
+    img_tokens: torch.Tensor,  <span class="c-cm"># (B, M, clip_dim)</span>
+) -&gt; tuple[torch.Tensor, torch.Tensor]:
+    <span class="c-str">"""
+    Build:
+        c           — pooled signal for adaLN  (B, cond_dim)
+        cond_tokens — sequence for cross-attn  (B, L+M, text_dim)
+    """</span>
+    <span class="c-cm"># ── Pooled adaLN signal ───────────────────────────────────────</span>
+    t_emb     = self.t_embedder(t)                          <span class="c-cm"># (B, cond_dim)</span>
+
+    txt_pool  = txt_tokens.mean(dim=<span class="c-num">1</span>)                      <span class="c-cm"># (B, text_dim)</span>
+    txt_pool  = self.txt_pool_proj(txt_pool)                <span class="c-cm"># (B, cond_dim)</span>
+
+    img_pool  = img_tokens[:, <span class="c-num">0</span>]                            <span class="c-cm"># (B, clip_dim) ← CLS token</span>
+    img_pool  = self.img_pool_proj(img_pool)                <span class="c-cm"># (B, cond_dim)</span>
+
+    <span class="c-cm"># Sum all three signals — each contributes to adaLN modulation</span>
+    c = t_emb + txt_pool + img_pool                         <span class="c-cm"># (B, cond_dim)</span>
+
+    <span class="c-cm"># ── Cross-attention token sequence ───────────────────────────</span>
+    <span class="c-cm"># Project CLIP tokens → text_dim so they can be concatenated</span>
+    img_tokens_proj = self.img_token_proj(img_tokens)       <span class="c-cm"># (B, M, text_dim)</span>
+
+    <span class="c-cm"># Concatenate: text tokens first, then image tokens</span>
+    cond_tokens = torch.cat([txt_tokens, img_tokens_proj], dim=<span class="c-num">1</span>)  <span class="c-cm"># (B, L+M, text_dim)</span>
+
+    <span class="c-kw">return</span> c, cond_tokens
+</pre>
+
+<p>here if you see that, we did something slightly crazy.</p>
+
+<p>
+we took:
+</p>
+
+<pre>txt_tokens.shape = (B, L, text_dim)</pre>
+
+<p>
+and then did:
+</p>
+
+<pre>txt_pool = txt_tokens.mean(dim=1)</pre>
+
+<p>
+Did we just collapse the entire text representation into a single vector? Wouldn't that destroy all the information?
+</p>
+
+<p>
+Yes, this does destroy some information, but not all of it.
+</p>
+
+<p>
+after mean pooling, the model no longer knows:
+</p>
+
+<ul>
+<li>exact token ordering</li>
+<li>fine-grained token interactions</li>
+</ul>
+
+<p>
+so why is this okay?
+</p>
+
+<p>
+because this pooled vector is <b>not the main conditioning path</b>.
+</p>
+
+<p>
+this vector:
+</p>
+
+<pre>c = t_emb + txt_pool + img_pool</pre>
+
+<p>
+is only used for:
+</p>
+
+<ul>
+<li>adaLN modulation</li>
+<li>global conditioning</li>
+<li>scale/shift/gating signals inside transformer blocks</li>
+</ul>
+
+<p>
+for this purpose, the model only needs a rough global semantic summary like:
+</p>
+
+<ul>
+<li>"this is a dog image"</li>
+<li>"this prompt is about a sunset"</li>
+<li>"this timestep is noisy"</li>
+</ul>
+
+<p>
+the detailed information is still preserved here:
+</p>
+
+<pre>
+cond_tokens = torch.cat(
+    [txt_tokens, img_tokens_proj],
+    dim=1
+)
+</pre>
+
+<p>
+those full token sequences are later consumed by cross-attention.
+</p>
+
+<p>
+so the architecture effectively has two conditioning paths:
+</p>
+
+<ul>
+<li><code>c</code> → global modulation signal</li>
+<li><code>cond_tokens</code> → detailed token-level conditioning</li>
+</ul>
+
+<p>
+this is why mean pooling works surprisingly well here.
+it gives the transformer a compact "global understanding" while cross-attention still preserves all fine-grained information.
+</p>
+
+
+<h2>Step 4: The Forward Pass</h2>
+
+
+<h3>4.1 I2V conditioning</h3>
+
+<p>
+  The image latent is tiled across time so it can act as a stable reference
+  at every video frame.
+</p>
+
+<pre>
+z_img → repeated across time → matched with z_t
+</pre>
+
+<p>
+  Then we concatenate the noisy video latent and the tiled image latent
+  on the channel axis.
+</p>
+
+<pre>
+z_in = concat(z_t, z_img)
+</pre>
+
+<h3>4.2 Patchify</h3>
+
+<p>
+  The combined latent is patchified into tokens.
+</p>
+
+<pre>
+x = self.patchify(z_in)
+</pre>
+
+<h3>4.3 Build conditioning</h3>
+
+<p>
+  We create the pooled conditioning vector and the cross-attention tokens.
+</p>
+
+<pre>
+c, cond_tokens = self.build_conditioning(t, txt_tokens, img_tokens)
+</pre>
+
+<h3>4.4 Create 3D position ids</h3>
+
+<p>
+  Since the tokens come from time, height, and width,
+  we create 3D position ids for RoPE.
+</p>
+
+<pre>
+pos_ids = make_3d_pos_ids(...)
+</pre>
+
+<h3>4.5 Pass through DiT blocks</h3>
+
+<p>
+  The token sequence is then refined layer by layer.
+</p>
+
+<pre>
+for block in self.blocks:
+    x = block(x, c, cond_tokens, pos_ids)
+</pre>
+
+<p>
+  Each block applies:
+</p>
+
+<ol>
+  <li>self-attention</li>
+  <li>cross-attention</li>
+  <li>feed-forward network</li>
+</ol>
+
+<p>
+  And each of those sub-blocks is modulated by adaLN.
+  So the timestep and conditioning keep influencing the model at every stage.
+</p>
+
+<h3>4.6 Final layer and unpatchify</h3>
+
+<p>
+  After all the blocks finish refining the tokens,
+  the final layer projects them back into patch space.
+</p>
+
+<pre>
+x = self.final_layer(x, c)
+v = self.unpatchify(x)
+</pre>
+
+<p>
+  The result is the predicted velocity field in video latent space.
+</p>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">forward</span>(
+    self,
+    z_t: torch.Tensor,         <span class="c-cm"># (B, C, T', H', W')  noisy video latent</span>
+    t: torch.Tensor,           <span class="c-cm"># (B,)                timesteps in [0,1]</span>
+    txt_tokens: torch.Tensor,  <span class="c-cm"># (B, L, text_dim)    T5 sequence</span>
+    img_tokens: torch.Tensor,  <span class="c-cm"># (B, M, clip_dim)    CLIP tokens</span>
+    z_img: torch.Tensor,       <span class="c-cm"># (B, C, T', H', W')  image latent (I2V)</span>
+) -&gt; torch.Tensor:
+    <span class="c-str">"""
+    Predict velocity field for flow matching.
+
+    Returns:
+        v_pred: (B, C, T', H', W')  predicted velocity
+    """</span>
+    B = z_t.shape[<span class="c-num">0</span>]
+    device = z_t.device
+
+    <span class="c-cm"># ── Step 1: I2V conditioning ──────────────────────────────────</span>
+    <span class="c-cm"># Tile image latent across time to match z_t shape</span>
+    <span class="c-cm"># z_img is the VAE-encoded first frame, shape (B, C, 1, H', W')</span>
+    <span class="c-cm"># or already tiled (B, C, T', H', W') — handle both</span>
+    <span class="c-kw">if</span> z_img.shape[<span class="c-num">2</span>] == <span class="c-num">1</span>:
+        z_img = z_img.expand_as(z_t)       <span class="c-cm"># tile across T'</span>
+
+    <span class="c-cm"># Concatenate on channel dim: (B, 2C, T', H', W')</span>
+    z_in = torch.cat([z_t, z_img], dim=<span class="c-num">1</span>)
+
+    <span class="c-cm"># ── Step 2: Patchify ─────────────────────────────────────────</span>
+    x = self.patchify(z_in)                <span class="c-cm"># (B, N, hidden_dim)</span>
+
+    <span class="c-cm"># ── Step 3: Build conditioning ───────────────────────────────</span>
+    c, cond_tokens = self.build_conditioning(t, txt_tokens, img_tokens)
+    <span class="c-cm"># c:           (B, cond_dim)</span>
+    <span class="c-cm"># cond_tokens: (B, L+M, text_dim)</span>
+
+    <span class="c-cm"># ── Step 4: 3D position ids for RoPE ─────────────────────────</span>
+    pos_ids = make_3d_pos_ids(
+        self.num_t, self.num_h, self.num_w, device=device
+    ).expand(B, -<span class="c-num">1</span>, -<span class="c-num">1</span>)                    <span class="c-cm"># (B, N, 3)</span>
+
+    <span class="c-cm"># ── Step 5: DiT blocks ────────────────────────────────────────</span>
+    <span class="c-kw">for</span> block <span class="c-kw">in</span> self.blocks:
+        x = block(x, c, cond_tokens, pos_ids)
+
+    <span class="c-cm"># ── Step 6: Final layer → unpatchify ─────────────────────────</span>
+    x = self.final_layer(x, c)             <span class="c-cm"># (B, N, out_patch_dim)</span>
+    v = self.unpatchify(x)                 <span class="c-cm"># (B, C, T', H', W')</span>
+
+    <span class="c-kw">return</span> v
+</pre>
+
+
+
+<h2>Step 5: Null Conditioning for CFG</h2>
+
+<p>
+  The model also keeps learned null embeddings.
+  These are used for classifier-free guidance.
+</p>
+
+<p>
+  During training, sometimes the conditioning is dropped.
+  In that case, the model uses these null tokens instead.
+</p>
+
+<pre><span class="c-kw">def</span> <span class="c-fn">get_null_conditioning</span>(
+    self, B: int, L: int, M: int, device: torch.device
+) -&gt; tuple[torch.Tensor, torch.Tensor]:
+    <span class="c-str">"""
+    Returns null text and image tokens for CFG unconditioned pass.
+    Expands learned null embeddings to batch size.
+    """</span>
+    null_txt = self.null_txt_token.expand(B, L, <span class="c-kw">-1</span>)   <span class="c-cm"># (B, L, text_dim)</span>
+    null_img = self.null_img_token.expand(B, M, <span class="c-kw">-1</span>)   <span class="c-cm"># (B, M, clip_dim)</span>
+    <span class="c-kw">return</span> null_txt.to(device), null_img.to(device)
+</pre>
+
+<h2>What the model is predicting</h2>
+
+<p>
+  This model predicts the <strong>velocity field</strong> used in flow matching.
+</p>
+
+<p>
+  In simple words:
+  it does not directly output the final clean video.
+  It predicts the direction the noisy latent should move in.
+</p>
+
+<pre>
+noisy latent → predicted velocity → denoised latent
+</pre>
+
+<p>
+  This makes the generation process smoother and more stable.
+</p>
+
+
+<h2>Full Flow of the Model</h2>
+
+<pre>
+1. Take noisy video latent and image latent
+2. Repeat image latent across time
+3. Concatenate them on the channel axis
+4. Patchify into token sequence
+5. Build timestep and conditioning embeddings
+6. Add 3D position ids
+7. Process tokens through many DiT blocks
+8. Project tokens back to patch space
+9. Unpatchify into predicted velocity field
+</pre>
+
+<p>
+  That is the complete forward pass of VideoDiT.
+</p>
+
+
+
+<h2>Why this design works</h2>
+
+<ul>
+  <li>weight initialization keeps training stable from the start</li>
+  <li>patchify turns video into transformer-friendly tokens</li>
+  <li>unpatchify brings the output back to video latent space</li>
+  <li>conditioning is split into global control and token-level guidance</li>
+  <li>the forward pass keeps the reference image stable across time</li>
+  <li>the transformer repeatedly refines the noisy latent through many blocks</li>
+  <li>the final output is a velocity field, not a direct video latent</li>
+</ul>
+
+<div class="callout">
+  <strong>Summary:</strong>
+  VideoDiT is a clean pipeline that takes noisy video, adds conditioning,
+  processes everything through transformer blocks, and predicts how the video latent should move next.
+</div>
+
+
+
+
+<h2>Key Takeaways</h2>
+
+<ul>
+  <li>The model works in token space, not raw video space</li>
+  <li>Patchify converts video latents into transformer tokens</li>
+  <li>Image conditioning is tiled across time for I2V generation</li>
+  <li>The pooled conditioning vector drives adaLN modulation</li>
+  <li>The conditioning token sequence is used for cross-attention</li>
+  <li>DiT blocks repeatedly refine the video latent</li>
+  <li>The final layer predicts the velocity field in patch space</li>
+</ul>
+`
+},
 ];
 
 let current = 0;
