@@ -7268,6 +7268,247 @@ noisy latent → predicted velocity → denoised latent
 </ul>
 `
 },
+{
+  title: "Conditioning Encoders",
+  tag: "DiT",
+  subtitle: "",
+  body: `
+<p>
+  In the last lecture of the I2V series, we finally look at the module that prepares all conditioning information
+  before it enters the DiT model.
+</p>
+
+<p>
+It takes raw text and images, converts them into tokens and pooled vectors.
+</p>
+
+
+<h2>What this module does</h2>
+
+<pre>
+text prompt  → T5 encoder   → text tokens + text pool
+image        → CLIP encoder → image tokens + image pool
+</pre>
+
+<p>
+  We use two frozen encoders here:
+</p>
+
+<ul>
+  <li><strong>T5</strong> for text conditioning</li>
+  <li><strong>CLIP Vision</strong> for image conditioning</li>
+</ul>
+
+<p>
+  Both are frozen.
+  We do not train them.
+  Their job is only to provide strong semantic features.
+</p>
+
+
+
+<h2>Output containers</h2>
+
+<pre><span class="c-kw">@dataclass</span>
+<span class="c-kw">class</span> <span class="c-fn">TextCondition</span>:
+    tokens: torch.Tensor
+    pool:   torch.Tensor
+
+<span class="c-kw">@dataclass</span>
+<span class="c-kw">class</span> <span class="c-fn">ImageCondition</span>:
+    tokens: torch.Tensor
+    pool:   torch.Tensor
+</pre>
+
+<p>
+  These dataclasses keep the outputs clean and readable.
+</p>
+
+<p>
+  For text:
+</p>
+
+<pre>
+tokens → (B, L, text_dim)
+pool   → (B, text_dim)
+</pre>
+
+<p>
+  For image:
+</p>
+
+<pre>
+tokens → (B, M, clip_dim)
+pool   → (B, clip_dim)
+</pre>
+
+<p>
+  So the model gets both detailed information and compact summary information.
+</p>
+
+<h2>1. T5TextEncoder</h2>
+
+<p>
+  The T5 encoder handles the prompt.
+  It turns text into a sequence of embeddings.
+</p>
+
+<p>
+  This sequence is used later by cross-attention in DiT.
+</p>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">T5TextEncoder</span>(nn.Module):
+</pre>
+
+<p>
+  The flow is simple:
+</p>
+
+<pre>
+prompt strings → tokenizer → T5 encoder → hidden states
+</pre>
+
+<h3>Tokenization</h3>
+
+<p>
+  First, the text is tokenized and padded to a fixed maximum length.
+</p>
+
+<pre>
+encoding = tokenizer(
+    prompts,
+    max_length=max_length,
+    padding="max_length",
+    truncation=True,
+    return_tensors="pt",
+)
+</pre>
+
+<p>
+  Then the input ids go into the frozen T5 encoder.
+</p>
+
+
+<p>
+  For pooling, we take the mean over all tokens.
+</p>
+
+<pre>
+pool = (tokens * mask).sum(dim=1) / mask.sum(dim=1)
+</pre>
+
+<p>
+  This pooled vector is a global summary of the prompt.
+  It is useful for conditioning paths like adaLN.
+</p>
+
+
+<h2>2. CLIPImageEncoder</h2>
+
+<p>
+  The CLIP image encoder does the same thing for images.
+  It turns an image into patch tokens and a global CLS token.
+</p>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">CLIPImageEncoder</span>(nn.Module):
+</pre>
+
+<p>
+  The flow is:
+</p>
+
+<pre>
+image → CLIP processor → CLIP vision encoder → patch tokens + CLS token
+</pre>
+
+
+<p>
+  The output has two parts:
+</p>
+
+<ul>
+  <li><strong>tokens</strong> → patch-level features for cross-attention</li>
+  <li><strong>pool</strong> → CLS token for global image guidance</li>
+</ul>
+
+<pre>
+tokens = outputs.last_hidden_state.float()
+pool   = tokens[:, 0]
+</pre>
+
+<p>
+  Here the CLS token acts as a compact summary of the entire image.
+</p>
+
+
+
+<h2>Why do we keep both tokens and pool?</h2>
+
+<p>
+  Because the model needs two kinds of conditioning.
+</p>
+
+<p>
+  The pooled vector is good for global control.
+  The token sequence is good for detailed alignment.
+</p>
+
+<pre>
+pool   → global conditioning
+tokens → fine-grained for cross-attention
+</pre>
+
+
+<h2>3. ConditioningPipeline</h2>
+
+<p>
+  This class combines both encoders into one clean interface.
+</p>
+
+<pre><span class="c-kw">class</span> <span class="c-fn">ConditioningPipeline</span>(nn.Module):
+</pre>
+
+
+<h3>What it returns</h3>
+
+<pre>
+encode_text(prompts)  → TextCondition
+encode_image(images)  → ImageCondition
+</pre>
+
+<p>
+  And for classifier-free guidance, it also gives null conditions.
+</p>
+
+
+<p>
+  For text, null conditioning is just zeros.
+  For image, null conditioning is also zeros with the same shape as real output.
+</p>
+
+<pre>
+null_txt = torch.zeros(B, L, text_dim)
+null_img = torch.zeros(B, M, clip_dim)
+</pre>
+
+
+
+
+<h2>Key Takeaways</h2>
+
+<ul>
+  <li>T5 converts prompts into text tokens and a pooled summary</li>
+  <li>CLIP converts images into patch tokens and a CLS summary</li>
+  <li>The DiT model uses pooled vectors for adaLN and token embeddings for cross-attention</li>
+</ul>
+
+<div class="callout">
+  <strong>Final note:</strong>
+  at this point the full I2V pipeline is ready.
+  In the next part, we move into training code.
+</div>
+`
+},  
 ];
 
 let current = 0;
