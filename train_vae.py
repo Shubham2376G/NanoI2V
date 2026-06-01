@@ -43,7 +43,7 @@ from vae.vae import VAE3D
 class VAETrainConfig:
 
     # ── Paths ──────────────────────────────────────────────────────
-    data_dir:   str = "data/videos"
+    data_dir:   str = "data/npy_files"
     output_dir: str = "runs/vae"
     resume:     str = None          # path to checkpoint to resume from
 
@@ -65,7 +65,7 @@ class VAETrainConfig:
     kl_weight:          float = 1e-6    # β: KL regularization
     perceptual_weight:  float = 0.1     # LPIPS weight (0 to disable)
     # kl_weight starts very small and warms up — prevents posterior collapse
-    kl_warmup_steps:    int   = 5_000   # steps to ramp kl_weight to full
+    kl_warmup_steps:    int   = 10_000   # steps to ramp kl_weight to full
 
     # ── Training ───────────────────────────────────────────────────
     batch_size:       int   = 4         # per GPU
@@ -132,8 +132,21 @@ class VideoDataset(Dataset):
         return len(self.paths)
 
     def __getitem__(self, idx):
-        video = np.load(self.paths[idx])         # (T, H, W, 3)
-        video = torch.from_numpy(video).float()
+        video = np.load(self.paths[idx])   # (T, H, W, 3) uint8, values 0-255
+
+        # Validate dtype — catch accidental float saves early
+        assert video.dtype == np.uint8, \
+            f"Expected uint8, got {video.dtype}. " \
+            f"Re-extract with uint8 or fix the normalization."
+
+        video = torch.from_numpy(video.copy()).float()   # (T, H, W, 3) float32
+
+        # Normalize uint8 [0, 255] → float [-1, 1]
+        # This is the standard for all diffusion models
+        # 0   → -1.0
+        # 127 → -0.004  (near zero)
+        # 255 → +1.0
+        video = video / 127.5 - 1.0
 
         # Random temporal crop
         T = video.shape[0]
@@ -203,14 +216,7 @@ def get_lr(step: int, cfg: VAETrainConfig) -> float:
 
 
 def get_kl_weight(step: int, cfg: VAETrainConfig) -> float:
-    """
-    Warm up the KL weight from 0 → cfg.kl_weight over kl_warmup_steps.
-
-    Why: at init the encoder outputs mean≈0, logvar≈0 (near N(0,1)).
-    Immediately applying full KL weight causes the encoder to collapse
-    to the prior before it has learned to encode anything useful.
-    Warming it up gives the encoder time to develop first.
-    """
+    # No floor needed at 1e-6 — it's already negligible at 0
     if step >= cfg.kl_warmup_steps:
         return cfg.kl_weight
     return cfg.kl_weight * (step / cfg.kl_warmup_steps)
@@ -428,10 +434,10 @@ class VAETrainer:
 
                     # Total loss with current kl_weight (overrides fixed weight)
                     loss = (
-                        out.loss_recon
-                        + kl_weight * out.loss_kl
-                        + cfg.perceptual_weight * loss_percep
-                    )
+                            out.loss_recon
+                            + cfg.perceptual_weight * loss_percep
+                            + kl_weight * out.loss_kl
+                        )
 
                     # Gradient accumulation: scale loss
                     loss = loss / cfg.grad_accum
@@ -479,6 +485,56 @@ class VAETrainer:
                     with torch.no_grad():
                         mean_abs  = out.mean.abs().mean().item()
                         std_mean  = out.logvar.mul(0.5).exp().mean().item()
+                        # z = out.z
+
+                        # self.writer.add_scalar(
+                        #     "latent/z_mean",
+                        #     z.mean().item(),
+                        #     self.step
+                        # )
+
+                        # self.writer.add_scalar(
+                        #     "latent/z_std",
+                        #     z.std().item(),
+                        #     self.step
+                        # )
+
+                        # self.writer.add_scalar(
+                        #     "latent/z_abs_mean",
+                        #     z.abs().mean().item(),
+                        #     self.step
+                        # )
+
+                        # self.writer.add_scalar(
+                        #     "latent/posterior_mean_mean",
+                        #     out.mean.mean().item(),
+                        #     self.step
+                        # )
+
+                        # self.writer.add_scalar(
+                        #     "latent/posterior_mean_std",
+                        #     out.mean.std().item(),
+                        #     self.step
+                        # )
+
+                        # posterior_std = torch.exp(0.5 * out.logvar)
+
+                        # self.writer.add_scalar(
+                        #     "latent/posterior_std_mean",
+                        #     posterior_std.mean().item(),
+                        #     self.step
+                        # )
+
+                        # self.writer.add_scalar(
+                        #     "latent/posterior_std_std",
+                        #     posterior_std.std().item(),
+                        #     self.step
+                        # )
+
+
+
+
+
                     self.writer.add_scalar("latent/mean_abs",  mean_abs, self.step)
                     self.writer.add_scalar("latent/std_mean",  std_mean, self.step)
 
@@ -509,7 +565,7 @@ class VAETrainer:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir",    type=str, default="data/videos")
+    parser.add_argument("--data_dir",    type=str, default="data/npy_files")
     parser.add_argument("--output_dir",  type=str, default="runs/vae")
     parser.add_argument("--resume",      type=str, default=None)
     parser.add_argument("--batch_size",  type=int, default=4)

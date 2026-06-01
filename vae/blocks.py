@@ -50,6 +50,10 @@ class ResBlock3D(nn.Module):
         self.norm2 = get_norm(out_channels, num_groups)
         self.conv2 = CausalConv3d(out_channels, out_channels, kernel_size=3)
 
+
+        nn.init.zeros_(self.conv2.conv.bias)
+        nn.init.zeros_(self.conv2.conv.weight)
+
         self.act = nn.SiLU()
 
         # Skip projection only needed when channels change
@@ -113,16 +117,18 @@ class TemporalDownsample(nn.Module):
             stride=(2, 1, 1),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, C, T, H, W)
-        if self.keep_first:
-            # Downsample all frames except the first
-            first = x[:, :, :1, :, :]          # (B, C, 1, H, W) — kept
-            rest  = x[:, :, 1:, :, :]          # (B, C, T-1, H, W)
-            rest  = self.conv(rest)             # (B, C', (T-1)//2, H, W)
-            return torch.cat([first, rest], dim=2)
-        else:
+    def forward(self, x):
+        if not self.keep_first:
             return self.conv(x)
+
+        # Preserve original frame-0 latent exactly
+        first = x[:, :, :1]
+
+        # Temporal conv still sees frame-0 as causal context
+        out = self.conv(x)
+
+        # Replace compressed frame-0 output with original latent
+        return torch.cat([first, out[:, :, 1:]], dim=2)
 
 
 # ─────────────────────────────────────────────
@@ -198,7 +204,14 @@ class SpatialAttention(nn.Module):
         self.norm = get_norm(channels, num_groups)
         self.to_qkv = nn.Conv1d(channels, channels * 3, kernel_size=1, bias=False)
         self.proj_out = nn.Conv1d(channels, channels, kernel_size=1)
+
+        nn.init.zeros_(self.proj_out.bias)
+        nn.init.zeros_(self.proj_out.weight)
+
+
         self.scale = channels ** -0.5
+
+
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, C, T, H, W = x.shape

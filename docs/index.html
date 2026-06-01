@@ -1236,18 +1236,19 @@ Frame 0 is preserved for I2V conditioning.
         stride=(<span class="c-num">2</span>, <span class="c-num">1</span>, <span class="c-num">1</span>),
     )
 
-<span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x: torch.Tensor) -> torch.Tensor:
+<span class="c-kw">def</span> <span class="c-fn">forward</span>(self, x):
 
-    <span class="c-kw">if</span> self.keep_first:
+    <span class="c-kw">if</span> <span class="c-kw">not</span> self.keep_first:
+        <span class="c-kw">return</span> self.<span class="c-fn">conv</span>(x)
 
-        first = x[:, :, :<span class="c-num">1</span>, :, :]
-        rest  = x[:, :, <span class="c-num">1</span>:, :, :]
+    <span class="c-cmt"># Preserve original frame-0 latent exactly</span>
+    first = x[:, :, :<span class="c-num">1</span>]
 
-        rest = self.<span class="c-fn">conv</span>(rest)
+    <span class="c-cmt"># Temporal conv still sees frame-0 as causal context</span>
+    out = self.<span class="c-fn">conv</span>(x)
 
-        <span class="c-kw">return</span> torch.<span class="c-fn">cat</span>([first, rest], dim=<span class="c-num">2</span>)
-
-    <span class="c-kw">return</span> self.<span class="c-fn">conv</span>(x)</pre>
+    <span class="c-cmt"># Replace compressed frame-0 output with original latent</span>
+    <span class="c-kw">return</span> torch.<span class="c-fn">cat</span>([first, out[:, :, <span class="c-num">1</span>:]], dim=<span class="c-num">2</span>)</pre>
 
   <span class="code-label">vae/block.py</span>
 
@@ -2760,7 +2761,7 @@ N(0, I)
         <span class="c-kw">if</span> self.deterministic:
             <span class="c-kw">return</span> mean
 
-        logvar = logvar.clamp(<span class="c-num">-30.0</span>, <span class="c-num">20.0</span>)
+        logvar = logvar.clamp(<span class="c-num">-10.0</span>, <span class="c-num">10.0</span>)
         std    = torch.exp(<span class="c-num">0.5</span> * logvar)
 
         eps = torch.randn_like(mean)
@@ -2790,10 +2791,10 @@ z = μ + σ × ε    ← gradients flow through μ and σ cleanly
 </p>
 
 <p>
-  One more thing, we clamp <code>logvar</code> to <code>[-30, 20]</code>:
+  One more thing, we clamp <code>logvar</code> to <code>[-10, 10]</code>:
 </p>
 
-<pre>logvar = logvar.clamp(-30.0, 20.0)</pre>
+<pre>logvar = logvar.clamp(-10.0, 10.0)</pre>
 
 <p>
   because <code>exp(logvar)</code> blows up to infinity if <code>logvar</code> is large.
@@ -2807,7 +2808,7 @@ z = μ + σ × ε    ← gradients flow through μ and σ cleanly
         mean: torch.Tensor,
         logvar: torch.Tensor,
     ) -> torch.Tensor:
-        logvar = logvar.clamp(<span class="c-num">-30.0</span>, <span class="c-num">20.0</span>)
+        logvar = logvar.clamp(<span class="c-num">-10.0</span>, <span class="c-num">10.0</span>)
         kl = <span class="c-num">-0.5</span> * (<span class="c-num">1.0</span> + logvar - mean.pow(<span class="c-num">2</span>) - logvar.exp())
         <span class="c-kw">return</span> kl.mean()</pre>
 
@@ -7268,247 +7269,792 @@ noisy latent → predicted velocity → denoised latent
 </ul>
 `
 },
-{
-  title: "Conditioning Encoders",
-  tag: "DiT",
+  {
+    title: "Conditioning Encoders",
+    tag: "DiT",
+    subtitle: "",
+    body: `
+  <p>
+    In the last lecture of the I2V series, we finally look at the module that prepares all conditioning information
+    before it enters the DiT model.
+  </p>
+
+  <p>
+  It takes raw text and images, converts them into tokens and pooled vectors.
+  </p>
+
+
+  <h2>What this module does</h2>
+
+  <pre>
+  text prompt  → T5 encoder   → text tokens + text pool
+  image        → CLIP encoder → image tokens + image pool
+  </pre>
+
+  <p>
+    We use two frozen encoders here:
+  </p>
+
+  <ul>
+    <li><strong>T5</strong> for text conditioning</li>
+    <li><strong>CLIP Vision</strong> for image conditioning</li>
+  </ul>
+
+  <p>
+    Both are frozen.
+    We do not train them.
+    Their job is only to provide strong semantic features.
+  </p>
+
+
+
+  <h2>Output containers</h2>
+
+  <pre><span class="c-kw">@dataclass</span>
+  <span class="c-kw">class</span> <span class="c-fn">TextCondition</span>:
+      tokens: torch.Tensor
+      pool:   torch.Tensor
+
+  <span class="c-kw">@dataclass</span>
+  <span class="c-kw">class</span> <span class="c-fn">ImageCondition</span>:
+      tokens: torch.Tensor
+      pool:   torch.Tensor
+  </pre>
+
+  <p>
+    These dataclasses keep the outputs clean and readable.
+  </p>
+
+  <p>
+    For text:
+  </p>
+
+  <pre>
+  tokens → (B, L, text_dim)
+  pool   → (B, text_dim)
+  </pre>
+
+  <p>
+    For image:
+  </p>
+
+  <pre>
+  tokens → (B, M, clip_dim)
+  pool   → (B, clip_dim)
+  </pre>
+
+  <p>
+    So the model gets both detailed information and compact summary information.
+  </p>
+
+  <h2>1. T5TextEncoder</h2>
+
+  <p>
+    The T5 encoder handles the prompt.
+    It turns text into a sequence of embeddings.
+  </p>
+
+  <p>
+    This sequence is used later by cross-attention in DiT.
+  </p>
+
+  <pre><span class="c-kw">class</span> <span class="c-fn">T5TextEncoder</span>(nn.Module):
+  </pre>
+
+  <p>
+    The flow is simple:
+  </p>
+
+  <pre>
+  prompt strings → tokenizer → T5 encoder → hidden states
+  </pre>
+
+  <h3>Tokenization</h3>
+
+  <p>
+    First, the text is tokenized and padded to a fixed maximum length.
+  </p>
+
+  <pre>
+  encoding = tokenizer(
+      prompts,
+      max_length=max_length,
+      padding="max_length",
+      truncation=True,
+      return_tensors="pt",
+  )
+  </pre>
+
+  <p>
+    Then the input ids go into the frozen T5 encoder.
+  </p>
+
+
+  <p>
+    For pooling, we take the mean over all tokens.
+  </p>
+
+  <pre>
+  pool = (tokens * mask).sum(dim=1) / mask.sum(dim=1)
+  </pre>
+
+  <p>
+    This pooled vector is a global summary of the prompt.
+    It is useful for conditioning paths like adaLN.
+  </p>
+
+
+  <h2>2. CLIPImageEncoder</h2>
+
+  <p>
+    The CLIP image encoder does the same thing for images.
+    It turns an image into patch tokens and a global CLS token.
+  </p>
+
+  <pre><span class="c-kw">class</span> <span class="c-fn">CLIPImageEncoder</span>(nn.Module):
+  </pre>
+
+  <p>
+    The flow is:
+  </p>
+
+  <pre>
+  image → CLIP processor → CLIP vision encoder → patch tokens + CLS token
+  </pre>
+
+
+  <p>
+    The output has two parts:
+  </p>
+
+  <ul>
+    <li><strong>tokens</strong> → patch-level features for cross-attention</li>
+    <li><strong>pool</strong> → CLS token for global image guidance</li>
+  </ul>
+
+  <pre>
+  tokens = outputs.last_hidden_state.float()
+  pool   = tokens[:, 0]
+  </pre>
+
+  <p>
+    Here the CLS token acts as a compact summary of the entire image.
+  </p>
+
+
+
+  <h2>Why do we keep both tokens and pool?</h2>
+
+  <p>
+    Because the model needs two kinds of conditioning.
+  </p>
+
+  <p>
+    The pooled vector is good for global control.
+    The token sequence is good for detailed alignment.
+  </p>
+
+  <pre>
+  pool   → global conditioning
+  tokens → fine-grained for cross-attention
+  </pre>
+
+
+  <h2>3. ConditioningPipeline</h2>
+
+  <p>
+    This class combines both encoders into one clean interface.
+  </p>
+
+  <pre><span class="c-kw">class</span> <span class="c-fn">ConditioningPipeline</span>(nn.Module):
+  </pre>
+
+
+  <h3>What it returns</h3>
+
+  <pre>
+  encode_text(prompts)  → TextCondition
+  encode_image(images)  → ImageCondition
+  </pre>
+
+  <p>
+    And for classifier-free guidance, it also gives null conditions.
+  </p>
+
+
+  <p>
+    For text, null conditioning is just zeros.
+    For image, null conditioning is also zeros with the same shape as real output.
+  </p>
+
+  <pre>
+  null_txt = torch.zeros(B, L, text_dim)
+  null_img = torch.zeros(B, M, clip_dim)
+  </pre>
+
+
+
+
+  <h2>Key Takeaways</h2>
+
+  <ul>
+    <li>T5 converts prompts into text tokens and a pooled summary</li>
+    <li>CLIP converts images into patch tokens and a CLS summary</li>
+    <li>The DiT model uses pooled vectors for adaLN and token embeddings for cross-attention</li>
+  </ul>
+
+  <div class="callout">
+    <strong>Final note:</strong>
+    at this point the full I2V pipeline is ready.
+    In the next part, we move into training code.
+  </div>
+  `
+  },  
+  {
+  title: "Training the VAE",
+  tag: "VAE Training",
   subtitle: "",
   body: `
 <p>
-  In the last lecture of the I2V series, we finally look at the module that prepares all conditioning information
-  before it enters the DiT model.
+  Now the modeling part is completed.
+  We are moving to the training stage.
 </p>
 
 <p>
-It takes raw text and images, converts them into tokens and pooled vectors.
+  The first thing we train is the <strong>VAE</strong>.
+  This is the module that learns how to compress video into a latent space and reconstruct it back again.
 </p>
 
 
-<h2>What this module does</h2>
-
-<pre>
-text prompt  → T5 encoder   → text tokens + text pool
-image        → CLIP encoder → image tokens + image pool
-</pre>
+<h2>What is the VAE learning? (Recall)</h2>
 
 <p>
-  We use two frozen encoders here:
-</p>
-
-<ul>
-  <li><strong>T5</strong> for text conditioning</li>
-  <li><strong>CLIP Vision</strong> for image conditioning</li>
-</ul>
-
-<p>
-  Both are frozen.
-  We do not train them.
-  Their job is only to provide strong semantic features.
-</p>
-
-
-
-<h2>Output containers</h2>
-
-<pre><span class="c-kw">@dataclass</span>
-<span class="c-kw">class</span> <span class="c-fn">TextCondition</span>:
-    tokens: torch.Tensor
-    pool:   torch.Tensor
-
-<span class="c-kw">@dataclass</span>
-<span class="c-kw">class</span> <span class="c-fn">ImageCondition</span>:
-    tokens: torch.Tensor
-    pool:   torch.Tensor
-</pre>
-
-<p>
-  These dataclasses keep the outputs clean and readable.
-</p>
-
-<p>
-  For text:
+  The VAE has one simple job:
+  take a video, compress it into a smaller latent representation, and reconstruct the original video as accurately as possible.
 </p>
 
 <pre>
-tokens → (B, L, text_dim)
-pool   → (B, text_dim)
+video → encoder → latent → decoder → reconstructed video
 </pre>
 
 <p>
-  For image:
+  But this is not just plain compression.
+  It is a probabilistic compression.
+  The encoder predicts:
 </p>
 
 <pre>
-tokens → (B, M, clip_dim)
-pool   → (B, clip_dim)
+mean  → where the latent should be
+logvar → how uncertain that latent is
 </pre>
 
 <p>
-  So the model gets both detailed information and compact summary information.
-</p>
-
-<h2>1. T5TextEncoder</h2>
-
-<p>
-  The T5 encoder handles the prompt.
-  It turns text into a sequence of embeddings.
+  Then we sample from that distribution and decode it back.
 </p>
 
 <p>
-  This sequence is used later by cross-attention in DiT.
+  This is what makes it a <strong>Variational Autoencoder</strong>.
 </p>
 
-<pre><span class="c-kw">class</span> <span class="c-fn">T5TextEncoder</span>(nn.Module):
-</pre>
+<h2>Additional reconstruction loss</h2>
 
 <p>
-  The flow is simple:
+  Here, If we only use pixel reconstruction loss like L1 or L2, the model may learn blurry outputs.
+  It will try to average possible reconstructions instead of preserving sharp visual details.
+</p>
+
+<p>
+  That is why we add <strong>LPIPS</strong>.
+</p>
+
+<h2>LPIPS: Learned Perceptual Image Patch Similarity</h2>
+
+<p>
+  LPIPS is a perceptual loss.
+  It does not compare pixels directly.
+  Instead, it compares deep features extracted from a pretrained network such as VGG.
+</p>
+
+<p>
+  So instead of asking:
 </p>
 
 <pre>
-prompt strings → tokenizer → T5 encoder → hidden states
+"Are these pixels exactly the same?"
 </pre>
 
-<h3>Tokenization</h3>
-
 <p>
-  First, the text is tokenized and padded to a fixed maximum length.
+  it asks:
 </p>
 
 <pre>
-encoding = tokenizer(
-    prompts,
-    max_length=max_length,
-    padding="max_length",
-    truncation=True,
-    return_tensors="pt",
-)
+"Do these two images look similar to a feature extractor?"
 </pre>
 
 <p>
-  Then the input ids go into the frozen T5 encoder.
+  This is a much better signal for image and video quality because we humans do not judge quality pixel by pixel.
+  We judge structure, texture, sharpness, and visual consistency.
 </p>
-
-
-<p>
-  For pooling, we take the mean over all tokens.
-</p>
-
-<pre>
-pool = (tokens * mask).sum(dim=1) / mask.sum(dim=1)
-</pre>
-
-<p>
-  This pooled vector is a global summary of the prompt.
-  It is useful for conditioning paths like adaLN.
-</p>
-
-
-<h2>2. CLIPImageEncoder</h2>
-
-<p>
-  The CLIP image encoder does the same thing for images.
-  It turns an image into patch tokens and a global CLS token.
-</p>
-
-<pre><span class="c-kw">class</span> <span class="c-fn">CLIPImageEncoder</span>(nn.Module):
-</pre>
-
-<p>
-  The flow is:
-</p>
-
-<pre>
-image → CLIP processor → CLIP vision encoder → patch tokens + CLS token
-</pre>
-
-
-<p>
-  The output has two parts:
-</p>
-
-<ul>
-  <li><strong>tokens</strong> → patch-level features for cross-attention</li>
-  <li><strong>pool</strong> → CLS token for global image guidance</li>
-</ul>
-
-<pre>
-tokens = outputs.last_hidden_state.float()
-pool   = tokens[:, 0]
-</pre>
-
-<p>
-  Here the CLS token acts as a compact summary of the entire image.
-</p>
-
-
-
-<h2>Why do we keep both tokens and pool?</h2>
-
-<p>
-  Because the model needs two kinds of conditioning.
-</p>
-
-<p>
-  The pooled vector is good for global control.
-  The token sequence is good for detailed alignment.
-</p>
-
-<pre>
-pool   → global conditioning
-tokens → fine-grained for cross-attention
-</pre>
-
-
-<h2>3. ConditioningPipeline</h2>
-
-<p>
-  This class combines both encoders into one clean interface.
-</p>
-
-<pre><span class="c-kw">class</span> <span class="c-fn">ConditioningPipeline</span>(nn.Module):
-</pre>
-
-
-<h3>What it returns</h3>
-
-<pre>
-encode_text(prompts)  → TextCondition
-encode_image(images)  → ImageCondition
-</pre>
-
-<p>
-  And for classifier-free guidance, it also gives null conditions.
-</p>
-
-
-<p>
-  For text, null conditioning is just zeros.
-  For image, null conditioning is also zeros with the same shape as real output.
-</p>
-
-<pre>
-null_txt = torch.zeros(B, L, text_dim)
-null_img = torch.zeros(B, M, clip_dim)
-</pre>
-
-
-
-
-<h2>Key Takeaways</h2>
-
-<ul>
-  <li>T5 converts prompts into text tokens and a pooled summary</li>
-  <li>CLIP converts images into patch tokens and a CLS summary</li>
-  <li>The DiT model uses pooled vectors for adaLN and token embeddings for cross-attention</li>
-</ul>
 
 <div class="callout">
-  <strong>Final note:</strong>
-  at this point the full I2V pipeline is ready.
-  In the next part, we move into training code.
+  <strong>Why LPIPS matters:</strong>
+  L1 encourages pixel accuracy, but LPIPS encourages perceptual quality.
+  This helps the VAE produce reconstructions that look sharper and more realistic.
 </div>
-`
-},  
+
+<p>
+  In video VAE training, LPIPS is applied per frame.
+  That means we flatten the video into a batch of frames and compare the reconstructed frames with the original ones in perceptual feature space.
+</p>
+
+<pre>
+(B, 3, T, H, W) → (B*T, 3, H, W)
+</pre>
+
+
+
+<h2>The total VAE loss</h2>
+
+<p>
+  So the total training loss becomes:
+</p>
+
+<pre>
+total loss = reconstruction loss + KL loss + perceptual loss
+</pre>
+
+<h3>1. Reconstruction loss</h3>
+
+<p>
+  This measures how close the reconstructed video is to the input video.
+  In this code, we use L1 reconstruction loss.
+</p>
+
+<p>
+  L1 is simple and stable.
+  It encourages the output to stay close to the ground truth without over-smoothing as much as L2.
+</p>
+
+<h3>2. KL loss</h3>
+
+<p>
+  The KL term regularizes the latent space.
+  It pushes the learned distribution toward a standard normal one.
+</p>
+
+
+<p>
+  But if the KL term is too strong too early, the encoder can collapse and stop learning useful information.
+</p>
+
+<p>
+  That is why we will use KL warmup.
+</p>
+
+<h3>3. LPIPS perceptual loss</h3>
+
+<p>
+  This encourages visual realism.
+  It makes the reconstructions look sharper and more natural.
+</p>
+
+<p>
+  So the three losses work together:
+</p>
+
+<ul>
+  <li>reconstruction loss keeps the output faithful</li>
+  <li>KL loss keeps the latent space structured</li>
+  <li>LPIPS keeps the output visually pleasing</li>
+</ul>
+
+<h2>KL warmup</h2>
+
+<p>
+  At the beginning of training, reconstruction quality is more important than latent regularization.
+  Therefore, we start with a very small KL weight beta and gradually increase it.
+</p>
+
+<pre>
+small KL weight → focus on reconstruction
+large KL weight → enforce latent structure
+</pre>
+
+
+
+<h2>Dataset format</h2>
+
+<p>
+  The dataset loads pre-extracted video clips from <code>.npy</code> files.
+  Each file contains a video clip in the shape:
+</p>
+
+<pre>
+(T, H, W, 3)
+</pre>
+
+<p>
+  Then it is normalized from:
+</p>
+
+<pre>
+uint8 [0, 255] → float [-1, 1]
+</pre>
+
+<p>
+  That is the standard format for diffusion and VAE training.
+</p>
+
+<p>
+  The code also does temporal cropping.
+  If the clip is longer than the target length, it picks a random segment.
+  If it is shorter, it pads by repeating the last frame.
+</p>
+
+<p>
+  This keeps every training sample the same length.
+</p>
+
+
+<h2>What the VAE is actually doing inside training</h2>
+
+<p>
+  The VAE training loop is very straightforward:
+</p>
+
+<pre>
+1. load video batch
+2. encode video into latent
+3. sample latent
+4. decode latent back to video
+5. compute reconstruction loss
+6. compute KL loss
+7. compute LPIPS loss
+8. backpropagate
+9. update weights
+</pre>
+
+<p>
+  And this repeats for many steps.
+</p>
+
+<p>
+  Over time, the encoder learns how to compress the video properly,
+  and the decoder learns how to reconstruct it with good visual quality.
+</p>
+
+<h2>AMP</h2>
+
+<p>
+  The code uses mixed precision training with AMP.
+  That means some operations are done in lower precision to save memory and speed up training.
+</p>
+
+<p>
+  This is especially useful for video models because they are heavy and memory intensive.
+</p>
+
+
+
+<h2>Gradient clipping</h2>
+
+<p>
+  Gradient clipping is used to stop unstable updates.
+  If gradients become too large, the update can explode and destabilize training.
+</p>
+
+<pre>
+clip gradients → safer optimizer step
+</pre>
+
+<p>
+  This is another small but important stability trick.
+</p>
+
+<p>
+  The full training code is actually very straightforward.
+  Most of the complexity is not in the training loop itself,
+  but in making the training stable.
+</p>
+
+<p>
+  Things like:
+</p>
+
+<ul>
+  <li>KL warmup</li>
+  <li>LPIPS perceptual loss</li>
+  <li>gradient clipping</li>
+  <li>mixed precision training</li>
+  <li>distributed training</li>
+</ul>
+
+<p>
+  are all small engineering details,
+  but together they make a huge difference in whether the VAE trains properly or collapses.
+</p>
+
+<p>
+  You can find the complete training code in the repository itself.
+</p>
+
+<h2>Results</h2>
+
+<p> So I have already trained this model.
+  Let us first look at some example reconstructions, and then we will analyse the training plots.
+</p>
+
+<div class="callout">
+  <strong>Training setup:</strong>
+  4× H100 GPUs, batch size 4, sequence length 32, trained for 120k steps (~36 hours).
+</div>
+
+<h2>Example Results</h2>
+
+
+<p>
+  At the beginning of training, we have pure noise prediction.
+</p>
+
+<div class="hero-image">
+    <img 
+        src="images/vae_recon_0.png" 
+        alt="First VAE reconstruction"
+    />
+    <p class="caption">
+        First training step: reconstructions are pure noise
+    </p>
+</div>
+
+<p>
+  After few steps, the reconstructions looks pretty good but very blurry.
+  The model can capture the rough structure, but it does not yet know how to preserve sharp details.
+</p>
+
+<div class="hero-image">
+    <img 
+        src="images/vae_recon_early.png" 
+        alt="Early VAE reconstruction"
+    />
+    <p class="caption">
+        Early training: reconstructions are blurry and incomplete
+    </p>
+</div>
+
+
+<p>
+  After more training, the model starts learning better spatial structure and temporal consistency.
+  The output becomes less noisy and more recognizable.
+</p>
+
+<div class="hero-image">
+    <img 
+        src="images/vae_recon_mid.png" 
+        alt="Mid training VAE reconstruction"
+    />
+    <p class="caption">
+        Mid training: structure becomes clearer and motion starts improving
+    </p>
+</div>
+
+<p>
+  At the end of training, the reconstructions become much sharper.
+  The model preserves edges, colors, and important visual details far better than in the beginning.
+</p>
+
+<div class="hero-image">
+    <img 
+        src="images/vae_recon_final.png" 
+        alt="Final VAE reconstruction"
+    />
+    <p class="caption">
+        Final training: reconstructions are sharp and visually close to the input
+    </p>
+</div>
+
+
+
+<h2>Training Loss Curves</h2>
+
+<p>
+  Now let us look at the training plots.
+  These curves help us understand how the model improved over time.
+</p>
+
+<div class="hero-image">
+    <img 
+        src="images/totalloss.png" 
+        alt="VAE total training loss"
+    />
+    <p class="caption">
+        Total VAE training loss over time
+    </p>
+</div>
+
+<div class="hero-image">
+    <img 
+        src="images/recon.png" 
+        alt="VAE reconstruction loss"
+    />
+    <p class="caption">
+        Reconstruction loss during training
+    </p>
+</div>
+
+<div class="hero-image">
+    <img 
+        src="images/kl.png" 
+        alt="VAE KL divergence loss"
+    />
+    <p class="caption">
+        KL divergence during training
+    </p>
+</div>
+
+<div class="hero-image">
+    <img 
+        src="images/lpips.png" 
+        alt="VAE LPIPS perceptual loss"
+    />
+    <p class="caption">
+        LPIPS perceptual loss during training
+    </p>
+</div>
+
+<h3>1. Reconstruction loss curve</h3>
+
+<p>
+  This tells us how well the VAE is matching the input video.
+  Lower reconstruction loss means the decoder is reproducing frames more accurately.
+</p>
+
+<p>
+
+  Here, the reconstruction loss drops quickly in the early stage of training.
+  That is when the decoder is learning the basic layout of the video:
+  colors, shapes, and coarse motion.
+
+  Later, the curve improves more slowly because the model is working on finer details such as edges, textures, and visual sharpness.
+</p>
+
+
+<h3>2. KL loss curve</h3>
+
+<p>
+  This curve shows how strongly the latent distribution is being regularized toward the prior.
+  If you look closely, you will notice that the KL value actually increases at the start of training.
+  This is intentional: at first, we want the model to focus on reconstructing the video.
+  As the KL weight coefficient increases over time, the model gradually shifts its focus toward reducing the KL loss, and the curve stabilizes.
+</p>
+
+
+
+
+<h3>3. LPIPS curve</h3>
+
+<p>
+  This curve shows perceptual improvement.
+  A decreasing LPIPS value means the reconstructions are becoming visually closer to the original frames.
+</p>
+
+
+<p>
+  The LPIPS curve is especially important because it measures perceptual quality.
+  Even when pixel-level improvement slows down, LPIPS can keep going down as the reconstructions become visually sharper and more natural.
+</p>
+
+
+<h3>4. Total loss curve</h3>
+
+<p>
+  This shows whether the model is learning overall.
+  The curve should usually go down over time and then start flattening as it converges.
+</p>
+
+<p>
+  A smooth downward trend usually means training is stable.
+</p>
+
+
+
+<h2>Latent Statistics</h2>
+
+<p>
+  During training, I also monitored latent statistics to make sure the encoder stayed healthy.
+</p>
+
+<div class="hero-image">
+    <img 
+        src="images/mean.png" 
+        alt="VAE latent statistics"
+    />
+    <p class="caption">
+        Latent mean and latent standard deviation during training
+    </p>
+</div>
+
+<p>
+  Ideally, the latent mean should stay near 0 and the latent standard deviation should should stay near 1 for a meaningful latent space.
+</p>
+
+<p>
+  If you look closely at the curves, you will notice that the latent mean starts near 0, increases sharply during the early stages of training, and then gradually decreases back toward 0. Similarly, the latent standard deviation starts near 1, drops significantly at the beginning, and then slowly increases toward 1 as training progresses.
+</p>
+
+<p>
+  This behavior is expected. During the initial phase, the model prioritizes reconstruction quality, which can temporarily push the latent statistics away from their target values. As the KL weight increases during warmup, the latent distribution is gradually regularized back toward the prior.
+</p>
+
+<p>
+  If the standard deviation collapses to 0, it means the VAE has effectively turned into a deterministic autoencoder. In such cases, you may see very sharp reconstructions in only a few steps, but the autoencoder is no longer suitable for the DiT later.
+</p>
+
+
+<div class="callout">
+  <strong>Recall:</strong>
+  A diffusion model expects the latent space to behave like a smooth probability distribution.
+  If the VAE becomes deterministic, nearby latent points no longer correspond to meaningful variations, making diffusion training much harder.
+</div>
+
+
+<pre>
+mean close to 0  → good sign
+std close to 1    → good sign
+std collapsing    → warning sign
+</pre>
+
+
+<p>
+  If training is healthy, you should usually see:
+</p>
+
+<ul>
+  <li>loss curves trending downward</li>
+  <li>reconstructions becoming less blurry</li>
+  <li>latent statistics staying in a reasonable range</li>
+  <li>sample outputs improving over time</li>
+</ul>
+
+
+
+
+<div class="callout">
+  <strong>Summary:</strong>
+  after training, the VAE learned a stable latent space and produced much sharper reconstructions than at the start.
+  These latent representations are now ready for the diffusion transformer.
+</div>
+
+
+<h2>Key takeaway</h2>
+
+<p>
+  If the VAE learns a strong latent space, the diffusion transformer gets a much easier job creating the videos
+</p>
+
+
+
+  `
+},
 ];
 
 let current = 0;

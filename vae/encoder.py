@@ -95,6 +95,9 @@ class Encoder3D(nn.Module):
         self.out_norm = get_norm(bottleneck_ch, num_groups)
         self.out_act  = nn.SiLU()
         self.out_conv = CausalConv3d_1x1(bottleneck_ch, 2 * latent_channels)
+        
+        nn.init.zeros_(self.out_conv.conv.bias)
+        nn.init.normal_(self.out_conv.conv.weight, std=0.01)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """

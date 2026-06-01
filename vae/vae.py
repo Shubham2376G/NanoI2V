@@ -50,7 +50,7 @@ class DiagonalGaussian(nn.Module):
 
         # Clamp logvar for numerical stability:
         # exp(logvar) blows up if logvar is large
-        logvar = logvar.clamp(-30.0, 20.0)
+        logvar = logvar.clamp(-10.0, 10.0)
         std    = torch.exp(0.5 * logvar)
 
         # Reparameterization trick
@@ -68,10 +68,15 @@ class DiagonalGaussian(nn.Module):
             -0.5 * sum(1 + logvar - mean² - exp(logvar))
         Averaged over all dimensions and batch.
         """
-        logvar = logvar.clamp(-30.0, 20.0)
-        kl = -0.5 * (1.0 + logvar - mean.pow(2) - logvar.exp())
-        # Mean over everything: batch, channels, T, H, W
-        return kl.mean()
+        # 1. Upcast to float32 to survive the massive sum and pow(2)
+        mean_f32 = mean.float()
+        logvar_f32 = logvar.float().clamp(-10.0, 10.0)
+        
+        # 2. Calculate KL in float32 (safe from 65,504 limit)
+        kl = -0.5 * (1.0 + logvar_f32 - mean_f32.pow(2) - logvar_f32.exp())
+        
+        # 3. Summing in float32 is now completely safe
+        return kl.flatten(1).sum(dim=1).mean()
 
 
 # ─────────────────────────────────────────────
