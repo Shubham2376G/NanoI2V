@@ -8285,7 +8285,7 @@ first frame → frozen VAE encoder  → image latent
 
 
 
-<h2>Why training uses video latent</h2>
+<h2>Training process</h2>
 
 <p>
   During training, we already have the full target video.
@@ -8311,12 +8311,12 @@ noisy latent x_t → DiT → predicted velocity
   The model sees what the correct latent should be, and learns how to move toward it from a noisy state.
 </p>
 
-<h2>Why inference starts from noisy latent</h2>
+<h2>Inference process</h2>
 
 <p>
   At inference time, there is no real future video latent available.
   We only have the first frame and the caption.
-  So the model has to start from noise.
+  So the model starts from noise.
 </p>
 
 <pre>
@@ -8333,7 +8333,7 @@ generated latent → frozen VAE decode → final video
 
 
 <div class="callout">
-  <strong>Why this matters:</strong>
+  <strong>In short:</strong>
   training teaches the model how to recover a clean latent from noise, and inference simply reuses that skill to create a new video from scratch.
 </div>
 
@@ -8376,29 +8376,6 @@ v_pred   = DiT(x_t, t, txt_tokens, img_tokens, z_img)
 loss     = MSE(v_pred, v_target)
 </pre>
 
-<h2>Training and inference are the same path</h2>
-
-<p>
-  The main idea is very simple.
-  Training and inference are two versions of the same journey:
-</p>
-
-<pre>
-training  : clean latent → add noise → learn the reverse direction
-inference : noise → iteratively move toward a clean latent
-</pre>
-
-<p>
-  During training, the model sees the destination.
-  During inference, it starts from the beginning and walks the same path on its own.
-</p>
-
-<p>
-  That is why the frozen VAE is so important.
-  It makes the whole problem happen in latent space, where generation is much cheaper and much more stable.
-</p>
-
-
 
 <h2>CFG dropout</h2>
 
@@ -8421,13 +8398,12 @@ dropped input     → unconditional training
 <div class="callout">
   <strong>Why this matters:</strong>
   CFG makes the model follow the caption and first frame more strongly at generation time.
-  Without it, the samples are usually weaker and less controllable.
 </div>
 
 <h2>Training loop</h2>
 
 <p>
-  The full training loop is straightforward:
+  The full training loop looks like this:
 </p>
 
 <pre>
