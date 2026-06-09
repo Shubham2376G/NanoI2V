@@ -253,6 +253,42 @@
       margin-bottom: 10px;
     }
 
+    .result-pair {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    margin: 20px 0;
+    }
+
+    .result-image, .result-video {
+      flex: 1;
+    }
+
+    .result-image img {
+      width: 100%;
+      border-radius: 10px;
+      object-fit: cover;
+    }
+
+    .result-video video {
+      width: 100%;
+      border-radius: 10px;
+      object-fit: cover;
+    }
+
+    .result-caption {
+      margin-top: 10px;
+      font-size: 14px;
+      color: #444;
+      line-height: 1.4;
+    }
+
+    @media (max-width: 768px) {
+      .result-pair {
+        flex-direction: column;
+      }
+    }
+
     .lesson-subtitle {
       font-size: 0.93rem;
       color: var(--muted);
@@ -8055,6 +8091,519 @@ std collapsing    → warning sign
 
   `
 },
+{
+  title: "Training the DiT",
+  tag: "DiT Training",
+  subtitle: "",
+  body: `
+
+<p>
+  Now the VAE is ready.
+  The next stage is training the DiT model i.e <strong>complete I2V model</strong>.
+</p>
+
+<p>
+  This is the model that takes a <strong>first frame</strong> and a
+  <strong>text caption</strong>, and then generate the rest of the video.
+</p>
+
+
+
+<h2>Dataset preparation</h2>
+
+<p>
+  Before we start training the I2V model, we need to prepare the dataset in a form the trainer can actually use.
+</p>
+
+
+<p>
+  Raw videos are not directly convenient for training, so we first convert them into clean, fixed-format clips and matching captions.
+</p>
+
+<p>
+  The script below prepares VidGen clips and captions into paired files:
+</p>
+
+<pre>
+#!/usr/bin/env python3
+"""
+prepare_vidgen.py — convert VidGen-1M videos + captions into the
+(T,H,W,3) uint8 .npy + .txt format that train_dit.py expects.
+"""
+</pre>
+
+<p>
+  The output is simple:
+</p>
+
+<pre>
+clip_000000.npy
+clip_000000.txt
+clip_000001.npy
+clip_000001.txt
+...
+</pre>
+
+<p>
+  Each <code>.npy</code> file contains one video clip in the shape:
+</p>
+
+<pre>
+(T, H, W, 3)
+</pre>
+
+<p>
+  Each <code>.txt</code> file contains the matching caption.
+</p>
+
+<div class="callout">
+  <strong>Note:</strong>
+  The training code expects these clips to be stored as
+  <code>uint8 [0, 255]</code>, and it converts them to
+  <code>float [-1, 1]</code> inside the dataset loader.
+</div>
+
+<h2>How the dataset is built</h2>
+
+<p>
+  The preparation script does the following:
+</p>
+
+<p>
+  First, it matches videos and captions by filename stem.
+  If the video is called <code>abc123.mp4</code>, it looks for caption data with
+  <code>vid == "abc123"</code>.
+</p>
+
+<p>
+  Then it reads the full video, samples a <strong>contiguous frame window</strong>,
+  center-crops the frames to a square, resizes them, and stores the final clip.
+</p>
+
+<pre>
+raw video → contiguous window → center crop → resize → uint8 .npy
+</pre>
+
+
+
+<p>
+  Now, during training, the dataset loader reads each <code>.npy</code> file and its matching caption.
+  The video is normalized from:
+</p>
+
+<pre>
+uint8 [0, 255] → float [-1, 1]
+</pre>
+
+<p>
+  Then it makes sure the sequence length is consistent.
+</p>
+
+<p>
+  If the clip is longer than the target number of frames, it crops a random segment.
+  If it is shorter, it pads by repeating the last frame.
+</p>
+
+
+
+<h2>The frozen VAE</h2>
+
+<p>
+  Before the DiT sees anything, the video is compressed by the frozen VAE.
+  The VAE is not trained here.
+  It only acts as a stable latent encoder and decoder.
+</p>
+
+<pre>
+video → VAE encode → latent video
+latent video → VAE decode → reconstructed video
+</pre>
+
+<p>
+  The reason for this is simple:
+  the transformer should learn generation in latent space, not raw pixels.
+</p>
+
+<p>
+  That makes training much cheaper and much easier.
+</p>
+
+
+
+<h2>What goes into the model</h2>
+
+<p>
+  The I2V model does not take the raw video directly.
+  It takes three kinds of information:
+</p>
+
+<pre>
+1. the noisy video latent
+2. the first frame image condition
+3. the text caption
+</pre>
+
+<p>
+  These three inputs play different roles.
+  The noisy video latent is what the DiT actually learns to denoise.
+  The first frame and caption are the conditions that tell the model what to generate.
+</p>
+
+<h2>Reference frame encoding</h2>
+
+<p>
+  In the code, the first frame (or the reference frame) is sent through two different encoders:
+  the CLIP image encoder and the VAE encoder.
+</p>
+
+<pre>
+first frame → CLIP image encoder → image tokens
+first frame → frozen VAE encoder  → image latent
+</pre>
+
+<p>
+  This may look redundant at first, but it is doing two different jobs.
+</p>
+
+<p>
+  The <strong>CLIP image encoder</strong> turns the first frame into semantic tokens.
+  These tokens help the DiT understand the scene at a high level:
+  like in the scene there is a person, a car, a building, etc.
+</p>
+
+<p>
+  The <strong>VAE encoder</strong> compresses the same first frame into a latent.
+  This latent keeps the spatial structure of the image in a compact form.
+  It gives the model a clean visual anchor for what the video should continue from.
+</p>
+
+<div class="callout">
+  <strong>In simple words:</strong>
+  CLIP tells the model <em>whats in the image</em>.
+  VAE tells the model <em>how the image looks like in latent space</em>.
+</div>
+
+
+
+<h2>Why training uses video latent</h2>
+
+<p>
+  During training, we already have the full target video.
+  So we can encode that real video into a latent sequence:
+</p>
+
+<pre>
+real video → frozen VAE → video latent z0
+</pre>
+
+<p>
+  This latent is the clean target that the model should learn to produce.
+  Then we add noise to it and ask the DiT to predict the correct velocity field.
+</p>
+
+<pre>
+video latent z0 + noise + timestep → noisy latent x_t
+noisy latent x_t → DiT → predicted velocity
+</pre>
+
+<p>
+  This is the easiest way to teach the model the real generation process.
+  The model sees what the correct latent should be, and learns how to move toward it from a noisy state.
+</p>
+
+<h2>Why inference starts from noisy latent</h2>
+
+<p>
+  At inference time, there is no real future video latent available.
+  We only have the first frame and the caption.
+  So the model has to start from noise.
+</p>
+
+<pre>
+random noise → iterative denoising → generated video latent
+generated latent → frozen VAE decode → final video
+</pre>
+
+<p>
+  This is exactly why the model is trained with flow matching.
+  During training, it learns the path from noisy latent to clean latent.
+  During inference, we follow that same path in reverse direction starting from noise.
+</p>
+
+
+
+<div class="callout">
+  <strong>Why this matters:</strong>
+  training teaches the model how to recover a clean latent from noise, and inference simply reuses that skill to create a new video from scratch.
+</div>
+
+<h2>How the code uses these inputs</h2>
+
+<p>
+  In the training step, the code first encodes the batch:
+</p>
+
+<pre>
+z0      = self.vae.encode_mean(video)
+z_img   = self.vae.encode_mean(first_frame)
+txt     = self.cond.encode_text(caption)
+img_txt = self.cond.encode_image(first_frame)
+</pre>
+
+<p>
+  Here, <code>z0</code> is the full video latent.
+  This is the target latent that gets noised.
+</p>
+
+<p>
+  <code>z_img</code> is the first-frame latent.
+  This is not the target video.
+  It is a condition that gives the model a strong visual starting point.
+</p>
+
+<p>
+  The text and image tokens are passed for conditioning.
+</p>
+
+<p>
+  Then the scheduler adds noise to <code>z0</code>, and the DiT learns to predict the velocity:
+</p>
+
+<pre>
+x_t = add_noise(z0)
+v_target = get_velocity_target(z0, noise)
+v_pred   = DiT(x_t, t, txt_tokens, img_tokens, z_img)
+loss     = MSE(v_pred, v_target)
+</pre>
+
+<h2>Training and inference are the same path</h2>
+
+<p>
+  The main idea is very simple.
+  Training and inference are two versions of the same journey:
+</p>
+
+<pre>
+training  : clean latent → add noise → learn the reverse direction
+inference : noise → iteratively move toward a clean latent
+</pre>
+
+<p>
+  During training, the model sees the destination.
+  During inference, it starts from the beginning and walks the same path on its own.
+</p>
+
+<p>
+  That is why the frozen VAE is so important.
+  It makes the whole problem happen in latent space, where generation is much cheaper and much more stable.
+</p>
+
+
+
+<h2>CFG dropout</h2>
+
+<p>
+  The model also uses classifier-free guidance dropout.
+  Sometimes the text and image conditioning are replaced with null tokens during training.
+</p>
+
+<pre>
+conditional input → normal training
+dropped input     → unconditional training
+</pre>
+
+<p>
+  This teaches the model both modes:
+  with conditioning and without conditioning.
+  Later, during sampling, that makes guidance possible.
+</p>
+
+<div class="callout">
+  <strong>Why this matters:</strong>
+  CFG makes the model follow the caption and first frame more strongly at generation time.
+  Without it, the samples are usually weaker and less controllable.
+</div>
+
+<h2>Training loop</h2>
+
+<p>
+  The full training loop is straightforward:
+</p>
+
+<pre>
+1. load batch of preprocessed clips
+2. normalize video to [-1, 1]
+3. crop or pad to fixed length
+4. encode video with frozen VAE
+5. encode caption and first frame
+6. sample timestep and noise
+7. predict velocity with DiT
+8. compute MSE loss
+9. backpropagate
+10. update weights
+</pre>
+
+<p>
+  The same pattern repeats for every batch.
+  Over time, the DiT learns how to generate coherent motion from the conditioning signal.
+</p>
+
+<h2>EMA</h2>
+
+<p>
+  During training, we also keep an exponential moving average of the DiT weights.
+</p>
+
+<pre>
+ema_w = decay * ema_w + (1 - decay) * current_w
+</pre>
+
+<p>
+  The raw weights are used for optimization.
+  The EMA weights are usually better for sampling.
+</p>
+
+<p>
+  This is one of the easiest ways to improve generation stability.
+</p>
+
+<h2>AMP and gradient accumulation</h2>
+
+<p>
+  The training code uses mixed precision with AMP.
+  That saves memory and makes training faster.
+</p>
+
+<p>
+  It also uses gradient accumulation.
+  That is useful when the per-GPU batch size is small, but the effective batch size needs to be larger.
+</p>
+
+<pre>
+effective batch = batch_size × world_size × grad_accum
+</pre>
+
+<p>
+  This is especially important for video models because they are expensive to train.
+</p>
+
+
+
+
+<h2>What healthy training looks like</h2>
+
+<p>
+  If everything is working correctly, you should see:
+</p>
+
+<ul>
+  <li>loss going down over time</li>
+  <li>sample videos becoming more coherent</li>
+  <li>motion becoming smoother</li>
+  <li>the first frame being preserved more faithfully</li>
+  <li>the caption being followed more accurately</li>
+</ul>
+
+<p>
+  Early samples are usually noisy and unstable.
+  Later samples should start to show structure, motion, and scene consistency.
+</p>
+
+
+<h2>Results</h2>
+
+<p>
+  I have already trained this model. Although it is still far from perfect and cannot generate good videos on out-of-distribution samples yet,
+  let us look at some training example reconstructions and the training plot.
+</p>
+
+<div class="callout">
+  <strong>Training setup:</strong>
+  8× H100 GPUs, batch size 16, sequence length 17, trained for 80k steps (~18 hours).
+</div>
+
+<h2>Example Results</h2>
+
+<p>
+  Each example shows the first frame conditioning on the left, and the generated continuation on the right.
+</p>
+
+
+<div class="result-pair">
+
+  <!-- Left: Image -->
+  <div class="result-image">
+    <img src="images/s0.png" alt="First frame">
+  </div>
+
+  <!-- Right: Video -->
+  <div class="result-video">
+    <video controls>
+      <source src="images/s0.mp4" type="video/mp4">
+    </video>
+  </div>
+
+</div>
+
+<!-- Caption -->
+<div class="result-caption">
+  <strong>Caption:</strong> Third-person follow shot of a Minecraft-style character running down a stone pathway. The character has brown hair, a grey shirt, and a sword strapped to their back, captured mid-stride from behind. The surrounding environment features textured cobblestone walls and building facades under natural daylight. Smooth animation, blocky voxel aesthetic.
+</div>
+
+
+<div class="result-pair">
+
+  <!-- Left: Image -->
+  <div class="result-image">
+    <img src="images/s1.png" alt="First frame">
+  </div>
+
+  <!-- Right: Video -->
+  <div class="result-video">
+    <video controls>
+      <source src="images/s1.mp4" type="video/mp4">
+    </video>
+  </div>
+
+</div>
+
+<!-- Caption -->
+<div class="result-caption">
+  <strong>Caption:</strong> High-angle overhead shot of Formula 1 race cars navigating a sharp, wide turn on a grey asphalt track. The camera smoothly zooming and closing in on the bright green and yellow F1 car as it accelerates. The background shows a blurry race barrier and spectator area. Realistic lighting, high speed motion blur.
+</div>
+
+
+<h2>Training Loss Curve</h2>
+
+<p>
+  The plot below shows the total training loss over time.
+  We can clearly see a steady downward trend, which indicates that the model is successfully learning the flow matching objective.
+</p>
+
+<div class="hero-image">
+    <img 
+        src="images/dit_loss.png" 
+        alt="DiT training loss"
+    />
+    <p class="caption">
+        
+    </p>
+</div>
+
+<div class="callout">
+  <strong>Note:</strong>
+  Due to lack on bigger dataset, it started to saturate at 60K itself. We will need millions of videos (full dvideogen dataset size is about 2 TB) and compute to make a good I2V model.
+</div>
+
+<h2>Key takeaway</h2>
+
+<p>
+  If the dataset is clean and the latent space is stable, the I2V model gets a much easier job for video generation
+</p>
+  `
+},
+
+
 ];
 
 let current = 0;
