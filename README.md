@@ -56,28 +56,37 @@ Additional topics and modules will be added as the series evolves.
 ```text
 NanoI2V/
 ├── vae/
-│   ├── conv.py          # CausalConv3d
-│   ├── blocks.py        # 3D ResBlocks and SpatialAttention
-│   ├── encoder.py
-│   ├── decoder.py
-│   └── vae.py
+│   ├── conv.py                 # CausalConv3D implementation
+│   ├── blocks.py               # 3D ResBlocks and Spatial Attention modules
+│   ├── encoder.py              # VAE encoder
+│   ├── decoder.py              # VAE decoder
+│   └── vae.py                  # VAE model definition
 │
 ├── dit/
-│   ├── rope.py          # 3D RoPE
-│   ├── attention.py     # Self & Cross Attention
-│   ├── blocks.py        # DiT blocks with adaLN
-│   └── dit.py
+│   ├── rope.py                 # 3D Rotary Positional Embeddings (RoPE)
+│   ├── attention.py            # Self-Attention and Cross-Attention layers
+│   ├── blocks.py               # DiT blocks with Adaptive LayerNorm (adaLN)
+│   └── dit.py                  # Diffusion Transformer (DiT) architecture
 │
 ├── flow/
-│   └── scheduler.py     # Flow matching scheduler
+│   └── scheduler.py            # Flow Matching scheduler
 │
 ├── conditioning/
-│   └── encoders.py      # Text & image encoders
+│   └── encoders.py             # Text and image conditioning encoders
+│
+├── data/
+│   ├── download_vidgen.py      # Dataset download utilities
+│   ├── prepare_vidgen.py       # Dataset preparation pipeline
+│   └── preprocess_vae.py       # VAE preprocessing scripts
 │
 ├── docs/
-│   └── index.html       # Series website (GitHub Pages)
+│   └── index.html              # Project website (GitHub Pages)
 │
-└── train.py
+├── train_vae.py                # VAE training script
+├── train_dit.py                # DiT training script
+├── inference_dit.py            # Inference and video generation
+│
+└── README.md                   # Project documentation
 ```
 
 ---
