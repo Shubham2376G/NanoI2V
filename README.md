@@ -91,6 +91,82 @@ NanoI2V/
 
 ---
 
+## Results
+
+The following results were generated using the models implemented in this repository.
+
+### VAE Reconstruction Results
+
+The VAE is trained to compress video clips into a latent representation and reconstruct them with minimal quality loss.
+
+
+![](docs/images/vae_recon_final.png)
+
+
+
+---
+
+### DiT Video Generation Results
+
+The Diffusion Transformer (DiT) is trained in latent space and generates video sequences conditioned on an input image.
+
+#### Example 1
+
+<table>
+  <tr>
+    <td align="center"><b>Input Image</b></td>
+    <td align="center"><b>Generated Video</b></td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/images/s0.png" width="300">
+    </td>
+    <td align="center">
+      <img src="docs/images/s0.gif" width="300">
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+
+**Text Prompt**
+
+*Third-person follow shot of a Minecraft-style character running down a stone pathway. The character has brown hair, a grey shirt, and a sword strapped to their back, captured mid-stride from behind. The surrounding environment features textured cobblestone walls and building facades under natural daylight. Smooth animation, blocky voxel aesthetic.*
+
+</td>
+  </tr>
+</table>
+
+---
+
+#### Example 2
+
+<table>
+  <tr>
+    <td align="center"><b>Input Image</b></td>
+    <td align="center"><b>Generated Video</b></td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/images/s1.png" width="300">
+    </td>
+    <td align="center">
+      <img src="docs/images/s1.gif" width="300">
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+
+**Text Prompt**
+
+*High-angle overhead shot of Formula 1 race cars navigating a sharp, wide turn on a grey asphalt track. The camera smoothly zooming and closing in on the bright green and yellow F1 car as it accelerates. The background shows a blurry race barrier and spectator area. Realistic lighting, high speed motion blur.*
+
+</td>
+  </tr>
+</table>
+
+
+
+---
 ## Prerequisites
 
 A basic understanding of the following will help:
