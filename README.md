@@ -91,6 +91,32 @@ NanoI2V/
 
 ---
 
+
+## High-Level DiT Architecture
+
+NanoI2V follows the latent diffusion paradigm, where the Diffusion Transformer (DiT) operates entirely in the **latent space** produced by the VAE instead of directly on pixels.
+
+During each denoising step, the model takes:
+
+- **Noisy video latents** to be denoised
+- **Image latents** extracted from the conditioning image
+- **Text tokens** from the prompt encoder
+- **Image tokens** from the image encoder
+- **Timestep embeddings** indicating the current diffusion step
+
+These inputs are converted into spatial-temporal patches and processed by a stack of **DiT blocks** consisting of self-attention, cross-attention, MLP layers, and Adaptive LayerNorm (adaLN). The final layer predicts the **velocity field**, which is used by the flow-matching scheduler to iteratively transform noise into the target video latent.
+
+<p align="center">
+  <img src="docs/images/dit.png" alt="High-Level DiT Architecture" width="1000"/>
+</p>
+
+<p align="center">
+<i>High-level overview of the DiT architecture used in NanoI2V.</i>
+</p>
+
+---
+
+
 ## Results
 
 The following results were generated using the models implemented in this repository.
