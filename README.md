@@ -92,7 +92,7 @@ NanoI2V/
 ---
 
 
-## High-Level DiT Architecture
+## High-Level DiT Pipeline
 
 NanoI2V follows the latent diffusion paradigm, where the Diffusion Transformer (DiT) operates entirely in the **latent space** produced by the VAE instead of directly on pixels.
 
@@ -111,7 +111,7 @@ These inputs are converted into spatial-temporal patches and processed by a stac
 </p>
 
 <p align="center">
-<i>High-level overview of the DiT architecture used in NanoI2V.</i>
+<i>Simplified overview of the NanoI2V generation pipeline. The figure emphasizes the flow of information between components rather than the exact implementation. Detailed architectural components are introduced in later chapters.</i>
 </p>
 
 ---
