@@ -104,7 +104,7 @@ During each denoising step, the model takes:
 - **Image tokens** from the image encoder
 - **Timestep embeddings** indicating the current diffusion step
 
-These inputs are converted into spatial-temporal patches and processed by a stack of **DiT blocks** consisting of self-attention, cross-attention, MLP layers, and Adaptive LayerNorm (adaLN). The final layer predicts the **velocity field**, which is used by the flow-matching scheduler to iteratively transform noise into the target video latent.
+These inputs are processed by a stack of DiT blocks that iteratively refine the latent representation using attention and conditioning mechanisms. The final layer predicts the velocity field used by the flow-matching solver to progressively generate the target video latent.
 
 <p align="center">
   <img src="docs/images/dit.png" alt="High-Level DiT Architecture" width="1000"/>
