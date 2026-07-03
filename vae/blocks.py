@@ -121,14 +121,11 @@ class TemporalDownsample(nn.Module):
         if not self.keep_first:
             return self.conv(x)
 
-        # Preserve original frame-0 latent exactly
-        first = x[:, :, :1]
 
-        # Temporal conv still sees frame-0 as causal context
-        out = self.conv(x)
-
-        # Replace compressed frame-0 output with original latent
-        return torch.cat([first, out[:, :, 1:]], dim=2)
+        first = x[:, :, :1, :, :]          # (B, C, 1, H, W) — kept
+        rest  = x[:, :, 1:, :, :]          # (B, C, T-1, H, W)
+        rest  = self.conv(rest)             # (B, C', (T-1)//2, H, W)
+        return torch.cat([first, rest], dim=2)
 
 
 # ─────────────────────────────────────────────

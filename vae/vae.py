@@ -151,6 +151,14 @@ class VAE3D(nn.Module):
         z              = self.posterior.sample(mean, logvar)
         return z
 
+    def encode_mean(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Deterministic encode — returns mean only, no sampling.
+        Use this at inference for stable, reproducible latents.
+        """
+        enc_out      = self.encoder(x)
+        mean, logvar = enc_out.chunk(2, dim=1)
+        return mean
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """
@@ -207,4 +215,13 @@ class VAE3D(nn.Module):
             loss_kl    = loss_kl,
             loss_total = loss_total,
         )
+    def get_latent_shape(self, video_shape: tuple) -> tuple:
+        return self.encoder.get_latent_shape(video_shape)
 
+    def set_inference_mode(self):
+        """Switch posterior to deterministic for inference."""
+        self.posterior.deterministic = True
+
+    def set_training_mode(self):
+        """Switch posterior back to stochastic for training."""
+        self.posterior.deterministic = False
