@@ -91,6 +91,32 @@ NanoI2V/
 
 ---
 
+
+## High-Level DiT Pipeline
+
+NanoI2V follows the latent diffusion paradigm, where the Diffusion Transformer (DiT) operates entirely in the **latent space** produced by the VAE instead of directly on pixels.
+
+During each denoising step, the model takes:
+
+- **Noisy video latents** to be denoised
+- **Image latents** extracted from the conditioning image
+- **Text tokens** from the prompt encoder
+- **Image tokens** from the image encoder
+- **Timestep embeddings** indicating the current diffusion step
+
+These inputs are processed by a stack of DiT blocks that iteratively refine the latent representation using attention and conditioning mechanisms. The final layer predicts the velocity field used by the flow-matching solver to progressively generate the target video latent.
+
+<p align="center">
+  <img src="docs/images/dit.png" alt="High-Level DiT Architecture" width="1000"/>
+</p>
+
+<p align="center">
+<i>Simplified overview of the NanoI2V generation pipeline. The figure emphasizes the flow of information between components rather than the exact implementation. Detailed architectural components are introduced in later chapters.</i>
+</p>
+
+---
+
+
 ## Results
 
 The following results were generated using the models implemented in this repository.
