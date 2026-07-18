@@ -206,6 +206,74 @@ If you've worked with LLMs before, many concepts here will feel familiar.
 
 ---
 
+## 🚀 Google Colab Smoke Run
+
+Before downloading a large dataset or launching full training, you can verify that your environment is set up correctly by running the smoke tests included in `examples/`.
+
+These tests use tiny model configurations and synthetic data, allowing you to validate the complete NanoI2V pipeline in just a few minutes on a free Google Colab GPU.
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/Shubham2376G/NanoI2V.git
+cd NanoI2V
+```
+
+### 2. Install NanoI2V
+
+Install the project in editable mode:
+
+```bash
+pip install -e .
+```
+
+This makes the local `vae`, `dit`, `flow`, and other project modules importable so that all smoke tests can run correctly.
+
+### 3. (Optional) Generate a dummy dataset
+
+To verify the data loading pipeline without downloading a real dataset, generate a tiny synthetic dataset:
+
+```bash
+python examples/make_smoke_data.py
+```
+
+This creates a small dataset under `data/smoke/` containing randomly generated videos and captions.
+
+---
+
+## Available Smoke Tests
+
+All smoke tests are located in the `examples/` directory.
+
+| Script | Description |
+|---------|-------------|
+| `smoke_causal_conv.py` | Tests the causal 3D convolution layer. |
+| `smoke_vae_blocks.py` | Tests VAE residual blocks and spatial/temporal upsampling & downsampling. |
+| `smoke_encoder_decoder.py` | Tests the VAE encoder and decoder architectures. |
+| `smoke_vae.py` | Runs a complete VAE forward pass, computes losses, performs backpropagation, and verifies inference. |
+| `smoke_train_vae.py` | Runs a miniature VAE training loop on synthetic videos. |
+| `smoke_flow_matching.py` | Tests the Flow Matching scheduler, training loss, and Euler sampling. |
+| `smoke_dit_blocks.py` | Tests DiT transformer blocks, 3D RoPE, cross-attention, and adaLN-Zero initialization. |
+| `smoke_video_dit.py` | Runs an end-to-end VideoDiT forward pass with classifier-free guidance. |
+
+Run any smoke test with
+
+```bash
+python examples/<script_name>.py
+```
+
+For example,
+
+```bash
+python examples/smoke_train_vae.py
+python examples/smoke_video_dit.py
+```
+
+If all smoke tests complete successfully, your NanoI2V installation is ready for training on a real dataset.
+
+---
+
+
 ## ⭐ Support the Project
 
 If you find this useful:
